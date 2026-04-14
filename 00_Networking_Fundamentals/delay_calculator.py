@@ -101,7 +101,8 @@ if __name__ == "__main__":
 
     # --- Show how delay blows up near saturation ---
     print("=== Queuing Delay at Various Traffic Intensities ===")
-    for rate in [100, 500, 800, 900, 950, 990]:
+    # Max sustainable rate for 1500-byte packets on 1 Mbps ≈ 83 pps
+    for rate in [10, 30, 50, 65, 75, 80, 83]:
         r = compute_delays(
             packet_size_bits=1500 * 8,
             link_rate_bps=1e6,
