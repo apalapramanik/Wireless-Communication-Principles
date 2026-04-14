@@ -36,6 +36,9 @@ python encapsulation.py        # prints packet structure at each layer
 ## Sample Outputs
 
 **`delay_calculator.py`**
+
+![Queuing Delay vs Traffic Intensity](traffic_intensity.png)
+
 ```
 === Nodal Delay Breakdown ===
   Component                     Value

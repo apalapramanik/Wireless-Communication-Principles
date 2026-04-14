@@ -53,6 +53,11 @@ python link_budget.py   # 3 link budget scenarios: 3.5 GHz, 28 GHz @ 500m, 28 GH
 ```
 
 **`path_loss.py`**
+
+![FSPL vs Distance](fspl_vs_frequency.png)
+
+![Path Loss with Shadowing](path_loss_shadowing.png)
+
 ```
 === FSPL spot checks ===
   1 km, 700 MHz (4G)              FSPL =  89.4 dB
