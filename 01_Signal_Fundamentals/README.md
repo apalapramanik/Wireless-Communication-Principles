@@ -1,11 +1,78 @@
-# Signal Fundamentals
+# Signal Fundamentals + DSP
 
 ## Topics
 - Continuous vs discrete signals
-- Fourier Transform & DFT
-- Nyquist sampling theorem
-- Signal power, energy, bandwidth
-- Noise: thermal noise, SNR
+- Fourier Transform & FFT
+- Nyquist sampling theorem & aliasing
+- FIR filter design (windowed-sinc)
+- Spectrogram (STFT)
+- RF basics: frequency, wavelength, dB/dBm
+- Path loss models, shadowing
+- Link budget calculator
+
+## Files — Topic 4: Digital Signal Processing
+
+| File | What it builds |
+|------|----------------|
+| [fft_basics.py](fft_basics.py) | Composite signal → FFT → recover individual tones with exact amplitudes |
+| [aliasing.py](aliasing.py) | Nyquist theorem demo — what happens at 1000 / 210 / 150 Hz sampling of a 100 Hz signal |
+| [fir_filter.py](fir_filter.py) | Windowed-sinc FIR LPF from scratch — design, frequency response, apply, verify |
+| [spectrogram.py](spectrogram.py) | STFT from scratch — chirp sweep + switching tones, time-frequency resolution tradeoff |
+
+### Plots — Topic 4
+
+![FFT Basics](fft_basics.png)
+
+![Aliasing](aliasing.png)
+
+![FIR Filter](fir_filter.png)
+
+![Spectrogram](spectrogram.png)
+
+### Sample Outputs — Topic 4
+
+**`fft_basics.py`**
+```
+  Frequency (Hz)    Recovered Amp    True Amp     Error
+  -------------------------------------------------------
+              50           1.0000      1.0000  8.88e-16
+             120           0.5000      0.5000  1.11e-16
+             300           0.3000      0.3000  1.67e-16
+
+  Top 3 peaks detected at: [ 50 120 300] Hz  ✅
+```
+
+**`aliasing.py`**
+```
+    f_s (Hz)    Nyquist (Hz)   Nyquist OK?   Perceived freq
+  ----------------------------------------------------------
+        1000             500             ✅              100
+         210             105             ✅              100
+         150              75             ❌               50  ← |100 - 1×150| = 50
+         120              60             ❌               20  ← |100 - 1×120| = 20
+```
+
+**`fir_filter.py`**
+```
+  Frequency     Input Amp    Output Amp   Attenuation
+  ----------------------------------------------------
+      50 Hz         1.000        0.9995   PASSED ✅
+     200 Hz         0.800        0.0005   BLOCKED ✅
+
+  Sum of all taps : 1.000000  (DC gain = 1)
+  Group delay     : 50 samples = 50.0 ms  (linear phase)
+```
+
+**`spectrogram.py`**
+```
+  nperseg    Δt (ms)    Δf (Hz)   Note
+  --------------------------------------
+       32        8.0       31.2   fine time
+      128       32.0        7.8   balanced
+      512      128.0        2.0   fine freq
+
+  5G NR OFDM: subcarrier spacing Δf × symbol duration Δt = 1
+```
 
 ## Files — Topic 2: RF & Wireless Basics
 
