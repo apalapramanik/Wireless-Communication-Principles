@@ -1,6 +1,5 @@
 # Topic 3 — Modulation Schemes
 
-Source: Chat discussion | 3GPP TS 38.214
 
 ## Theory Covered
 - What modulation is: varying amplitude / frequency / phase of a carrier
