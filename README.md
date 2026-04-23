@@ -11,15 +11,18 @@ pip install streamlit numpy matplotlib
 streamlit run app.py
 ```
 
-| | |
-|---|---|
-| ![Overview](screenshots/overview.png) | ![FFT Explorer](screenshots/fft_explorer.png) |
-| ![Aliasing Demo](screenshots/aliasing_demo.png) | ![Constellation Viewer](screenshots/constellation_viewer.png) |
-| ![BER Curves](screenshots/ber_curves.png) | ![Path Loss & Link Budget](screenshots/path_loss.png) |
+![Dashboard demo](screenshots/demo.gif)
 
 ---
 
 ## Tech Stack
+
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white)
+![Matplotlib](https://img.shields.io/badge/Matplotlib-11557c?style=for-the-badge&logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
+![Git](https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white)
+![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)
 
 | Layer | Tool | Purpose |
 |-------|------|---------|
