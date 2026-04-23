@@ -1,6 +1,6 @@
 # Topic 2 — Signal Fundamentals & RF Basics
 
-Source: Rappaport Ch. 1–3 | Chat discussion
+Source: Rappaport Ch. 1–3
 
 ## Topics
 - RF fundamentals: frequency, wavelength, dB/dBm

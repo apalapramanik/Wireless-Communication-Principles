@@ -1,6 +1,6 @@
 # Topic 1 — Networking Fundamentals
 
-Source: Kurose & Ross, Ch. 1, 3, 4 | Chat discussion
+Source: Kurose & Ross, Ch. 1, 3, 4
 
 ## Theory Covered
 - What is a network? Hosts, links, switches, packets
