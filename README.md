@@ -11,7 +11,11 @@ pip install streamlit numpy matplotlib
 streamlit run app.py
 ```
 
-Covers: FFT Explorer · Aliasing Demo · Constellation Viewer · BER Curves · Path Loss & Link Budget
+| | |
+|---|---|
+| ![Overview](screenshots/overview.png) | ![FFT Explorer](screenshots/fft_explorer.png) |
+| ![Aliasing Demo](screenshots/aliasing_demo.png) | ![Constellation Viewer](screenshots/constellation_viewer.png) |
+| ![BER Curves](screenshots/ber_curves.png) | ![Path Loss & Link Budget](screenshots/path_loss.png) |
 
 ---
 
