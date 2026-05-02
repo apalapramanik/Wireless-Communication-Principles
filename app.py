@@ -11,6 +11,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import streamlit as st
+from scipy.special import erfc as _erfc
 
 # Allow importing from topic folders
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '02_Modulation_Techniques'))
@@ -31,10 +32,11 @@ PAGES = [
     "🗺️ Constellation Viewer",
     "📉 BER Curves",
     "📶 Path Loss & Link Budget",
+    "🔀 OFDM Explorer",
 ]
 page = st.sidebar.radio("Navigate", PAGES)
 st.sidebar.markdown("---")
-st.sidebar.caption("All implementations from scratch — no scipy")
+st.sidebar.caption("numpy · matplotlib · scipy — built from scratch")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -113,6 +115,96 @@ def firwin_lpf(n_taps, cutoff_hz, fs):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# OFDM Helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+def _ofdm_qam_const(M):
+    m = int(np.sqrt(M))
+    levels = np.arange(-(m - 1), m, 2, dtype=float)
+    I, Q = np.meshgrid(levels, levels)
+    pts = (I + 1j * Q).flatten()
+    pts /= np.sqrt(np.mean(np.abs(pts) ** 2))
+    return pts
+
+def _ofdm_qam_mod(bits, M):
+    const = _ofdm_qam_const(M)
+    bps   = int(np.log2(M))
+    n_sym = len(bits) // bps
+    words = bits[:n_sym * bps].reshape(-1, bps)
+    idx   = np.array([int("".join(map(str, row)), 2) for row in words])
+    return const[idx]
+
+def _ofdm_qam_demod(rx_syms, M):
+    const = _ofdm_qam_const(M)
+    bps   = int(np.log2(M))
+    idx   = np.argmin(np.abs(rx_syms[:, None] - const[None, :]), axis=1)
+    bits  = []
+    for i in idx:
+        bits.extend([int(b) for b in format(i, f"0{bps}b")])
+    return np.array(bits)
+
+def _ofdm_mod(syms, N_fft, N_cp, N_active):
+    freq = np.zeros(N_fft, dtype=complex)
+    half = N_active // 2
+    freq[1 : half + 1]         = syms[:half]
+    freq[N_fft - half : N_fft] = syms[half:]
+    td = np.fft.ifft(freq)
+    return np.concatenate([td[-N_cp:], td])
+
+def _ofdm_demod(rx, N_fft, N_cp, N_active):
+    fd   = np.fft.fft(rx[N_cp : N_cp + N_fft])
+    half = N_active // 2
+    return np.concatenate([fd[1 : half + 1], fd[N_fft - half : N_fft]]), fd
+
+def _ofdm_multipath(tx, delays, gains):
+    max_d = max(delays)
+    out   = np.zeros(len(tx) + max_d, dtype=complex)
+    for d, g in zip(delays, gains):
+        out[d : d + len(tx)] += g * tx
+    return out[: len(tx)]
+
+def _ofdm_awgn(signal, snr_db, rng):
+    pwr = np.mean(np.abs(signal) ** 2)
+    std = np.sqrt(pwr / (2 * 10 ** (snr_db / 10)))
+    return signal + std * (rng.standard_normal(signal.shape) +
+                           1j * rng.standard_normal(signal.shape))
+
+def _ofdm_h_active(delays, gains, N_fft, N_active):
+    h    = np.zeros(N_fft, dtype=complex)
+    for d, g in zip(delays, gains):
+        h[d] = g
+    H    = np.fft.fft(h, N_fft)
+    half = N_active // 2
+    return np.concatenate([H[1 : half + 1], H[N_fft - half : N_fft]])
+
+@st.cache_data
+def _ofdm_run_link(n_sym, M, N_fft, N_cp, N_active, snr_db,
+                   delays_t, gains_re_t, gains_im_t, use_eq, seed):
+    delays = list(delays_t)
+    gains  = [r + 1j * i for r, i in zip(gains_re_t, gains_im_t)]
+    rng    = np.random.default_rng(seed)
+    bps    = int(np.log2(M))
+    H_act  = _ofdm_h_active(delays, gains, N_fft, N_active)
+    tx_bits = rng.integers(0, 2, n_sym * N_active * bps)
+    all_rx, rx_bits = [], []
+    for i in range(n_sym):
+        b        = tx_bits[i * N_active * bps : (i + 1) * N_active * bps]
+        s        = _ofdm_qam_mod(b, M)
+        td       = _ofdm_mod(s, N_fft, N_cp, N_active)
+        td       = _ofdm_multipath(td, delays, gains)
+        td       = _ofdm_awgn(td, snr_db, rng)
+        rs, _    = _ofdm_demod(td, N_fft, N_cp, N_active)
+        if use_eq:
+            rs = rs / H_act
+        all_rx.append(rs)
+        rx_bits.extend(_ofdm_qam_demod(rs, M))
+    rx_syms = np.concatenate(all_rx)
+    rx_arr  = np.array(rx_bits)
+    ber     = np.sum(tx_bits != rx_arr[: len(tx_bits)]) / len(tx_bits)
+    return float(ber), rx_syms.real.tolist(), rx_syms.imag.tolist()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Page: Overview
 # ═══════════════════════════════════════════════════════════════════════
 if page == "🏠 Overview":
@@ -122,9 +214,9 @@ if page == "🏠 Overview":
     )
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Topics covered", "5")
-    col2.metric("Python files", "16+")
-    col3.metric("External deps", "numpy + matplotlib")
+    col1.metric("Topics covered", "6")
+    col2.metric("Python files", "20+")
+    col3.metric("External deps", "numpy · matplotlib · scipy")
 
     st.markdown("---")
     st.markdown("""
@@ -135,6 +227,7 @@ if page == "🏠 Overview":
 | 🗺️ **Constellation Viewer** | Pick modulation order, add noise, see symbols scatter |
 | 📉 **BER Curves** | Theory vs simulation — how SNR determines error rate |
 | 📶 **Path Loss & Link Budget** | Tune distance, frequency, antenna gains — PASS or FAIL |
+| 🔀 **OFDM Explorer** | Build a multipath channel, equalize it, measure BER vs SNR |
     """)
 
     st.info("Use the sidebar to navigate between pages.")
@@ -515,3 +608,216 @@ elif page == "📶 Path Loss & Link Budget":
             st.error(f"❌ Link margin = **{margin:.1f} dB** — link fails  "
                      f"(need {-margin:.1f} dB more gain or {distance}m → "
                      f"{distance * 10**(margin / (10*n_ple)):.0f}m distance)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Page: OFDM Explorer
+# ═══════════════════════════════════════════════════════════════════════
+elif page == "🔀 OFDM Explorer":
+    st.title("🔀 OFDM Explorer")
+    st.markdown(
+        "A 5G NR-like OFDM link — 128-point FFT, 72 active subcarriers, 16-sample cyclic prefix. "
+        "Explore how multipath distorts the constellation and how a zero-forcing equalizer undoes it."
+    )
+
+    _N_FFT, _N_CP, _N_ACTIVE = 128, 16, 72
+    _DELAYS = [0, 4, 9]
+    _GAINS_DEFAULT = [1.0, 0.6 * np.exp(1j * 0.8), 0.3 * np.exp(-1j * 1.2)]
+
+    tab1, tab2, tab3 = st.tabs(["📶 Channel Model", "🗺️ Constellation", "📉 BER vs SNR"])
+
+    # ── Tab 1: Channel Model ─────────────────────────────────────────
+    with tab1:
+        st.markdown(
+            "Adjust the 3-tap channel gains and phases. "
+            "The CP must be longer than the max tap delay or ISI leaks in."
+        )
+        col_ctrl, col_plot = st.columns([1, 2])
+
+        with col_ctrl:
+            st.subheader("Tap controls")
+            g1   = st.slider("Tap 1 (delay = 0) gain",  0.1, 2.0, 1.0, step=0.05)
+            g2   = st.slider("Tap 2 (delay = 4) gain",  0.0, 1.5, 0.6, step=0.05)
+            phi2 = st.slider("Tap 2 phase (rad)",        0.0, 6.28, 0.8, step=0.05)
+            g3   = st.slider("Tap 3 (delay = 9) gain",  0.0, 1.0, 0.3, step=0.05)
+            phi3 = st.slider("Tap 3 phase (rad)",        0.0, 6.28, 1.2, step=0.05)
+            cp_disp = st.slider("CP length (display only)", 4, 32, _N_CP)
+
+            gains_ch = [g1, g2 * np.exp(1j * phi2), g3 * np.exp(-1j * phi3)]
+            max_d    = max(_DELAYS)
+            if cp_disp >= max_d:
+                st.success(f"✅ CP ({cp_disp}) ≥ max delay ({max_d}) — no ISI")
+            else:
+                st.error(f"❌ CP ({cp_disp}) < max delay ({max_d}) — ISI leaks in")
+            st.markdown("---")
+            st.markdown(f"**Subcarrier count:** {_N_ACTIVE} active / {_N_FFT} total")
+            st.markdown(f"**Guard subcarriers:** {_N_FFT - _N_ACTIVE - 1} (edge roll-off)")
+
+        h_vec = np.zeros(32, dtype=complex)
+        for d, g in zip(_DELAYS, gains_ch):
+            h_vec[d] = g
+        H_full   = np.fft.fft(h_vec, _N_FFT)
+        freqs_sh = np.fft.fftshift(np.fft.fftfreq(_N_FFT))
+        H_sh     = np.fft.fftshift(H_full)
+
+        with col_plot:
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4))
+
+            ax1.stem(np.arange(len(h_vec)), np.abs(h_vec),
+                     markerfmt="C0o", linefmt="C0-", basefmt="k-")
+            ax1.axvline(cp_disp, color="red", ls="--", lw=1.5,
+                        label=f"CP = {cp_disp} samples")
+            ax1.set(title="Channel Impulse Response  |h[n]|",
+                    xlabel="Delay (samples)", ylabel="|h|")
+            ax1.legend(); ax1.grid(True, alpha=0.3)
+
+            ax2.plot(freqs_sh, 20 * np.log10(np.abs(H_sh) + 1e-10),
+                     color="steelblue", lw=1.5)
+            ax2.set(title="Channel Frequency Response  |H(f)|  dB",
+                    xlabel="Normalized frequency (−0.5 … +0.5)", ylabel="dB")
+            ax2.grid(True, alpha=0.3)
+
+            plt.suptitle("3-Tap Multipath Channel", fontsize=11)
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.info(
+            "**Key insight:** each path adds a delayed copy of the signal. "
+            "At some subcarrier frequencies the copies add constructively (peaks); "
+            "at others destructively (notches). "
+            "After the FFT, each subcarrier *k* sees a single scalar H_k — "
+            "this is what the ZF equalizer divides out."
+        )
+
+    # ── Tab 2: Constellation ─────────────────────────────────────────
+    with tab2:
+        st.markdown(
+            "Each OFDM symbol passes through the 3-tap channel. "
+            "Without equalization every subcarrier lands at a different rotated position. "
+            "The ZF equalizer divides by H_k and collapses the clouds back."
+        )
+        col_ctrl, col_plot = st.columns([1, 2])
+
+        with col_ctrl:
+            M_c    = st.selectbox("Modulation order M", [4, 16, 64], index=1, key="oc_M")
+            snr_c  = st.slider("SNR (dB)", 0, 35, 25, key="oc_snr")
+            nsym_c = st.slider("OFDM symbols to simulate", 10, 100, 40, step=10, key="oc_nsym")
+
+        gains_c = _GAINS_DEFAULT
+        ber_eq,   re_eq,   im_eq   = _ofdm_run_link(
+            nsym_c, M_c, _N_FFT, _N_CP, _N_ACTIVE, snr_c,
+            tuple(_DELAYS),
+            tuple(g.real for g in gains_c), tuple(g.imag for g in gains_c),
+            True, 42)
+        ber_noeq, re_noeq, im_noeq = _ofdm_run_link(
+            nsym_c, M_c, _N_FFT, _N_CP, _N_ACTIVE, snr_c,
+            tuple(_DELAYS),
+            tuple(g.real for g in gains_c), tuple(g.imag for g in gains_c),
+            False, 42)
+
+        const_ref = _ofdm_qam_const(M_c)
+
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("BER — ZF equalizer",  f"{ber_eq:.4f}")
+            st.metric("BER — no equalizer",  f"{ber_noeq:.3f}")
+            if ber_eq > 0:
+                st.metric("Improvement", f"{ber_noeq / ber_eq:.0f}×")
+
+        with col_plot:
+            fig, axes = plt.subplots(1, 3, figsize=(14, 5))
+            label = "QPSK" if M_c == 4 else f"{M_c}-QAM"
+
+            axes[0].scatter(const_ref.real, const_ref.imag, s=80, color="black", zorder=5)
+            axes[0].set(title=f"{label} — Ideal", aspect="equal")
+            axes[0].axhline(0, color="k", lw=0.5); axes[0].axvline(0, color="k", lw=0.5)
+            axes[0].grid(True, alpha=0.3)
+
+            axes[1].scatter(re_noeq, im_noeq, s=3, alpha=0.35, color="crimson")
+            axes[1].scatter(const_ref.real, const_ref.imag,
+                            s=50, color="black", zorder=5, marker="x")
+            axes[1].set(title=f"No equalizer\nBER = {ber_noeq:.3f}", aspect="equal")
+            axes[1].axhline(0, color="k", lw=0.5); axes[1].axvline(0, color="k", lw=0.5)
+            axes[1].grid(True, alpha=0.3)
+
+            axes[2].scatter(re_eq, im_eq, s=3, alpha=0.35, color="steelblue")
+            axes[2].scatter(const_ref.real, const_ref.imag,
+                            s=50, color="black", zorder=5, marker="x")
+            axes[2].set(title=f"ZF equalizer\nBER = {ber_eq:.4f}", aspect="equal")
+            axes[2].axhline(0, color="k", lw=0.5); axes[2].axvline(0, color="k", lw=0.5)
+            axes[2].grid(True, alpha=0.3)
+
+            plt.suptitle("OFDM Constellation — Multipath + ZF Equalization", fontsize=11)
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+    # ── Tab 3: BER vs SNR ────────────────────────────────────────────
+    with tab3:
+        st.markdown(
+            "With ZF equalization the BER curve tracks theoretical AWGN — "
+            "confirming the CP + FFT + one-tap division fully neutralizes multipath. "
+            "Without it the BER floors: adding power stops helping."
+        )
+        col_ctrl, col_plot = st.columns([1, 2])
+
+        with col_ctrl:
+            M_b       = st.selectbox("Modulation order M", [4, 16, 64], index=1, key="ob_M")
+            snr_max_b = st.slider("Max SNR (dB)", 20, 35, 30, key="ob_snr_max")
+            nsym_b    = st.select_slider(
+                "OFDM symbols per SNR point",
+                options=[10, 20, 30, 50], value=20, key="ob_nsym"
+            )
+            bps_b = int(np.log2(M_b))
+            st.caption(f"~{nsym_b * _N_ACTIVE * bps_b:,} bits per point")
+
+        gains_b  = _GAINS_DEFAULT
+        snr_pts  = list(range(0, snr_max_b + 1, 3))
+        bers_eq, bers_noeq = [], []
+
+        with st.spinner("Simulating…"):
+            for snr in snr_pts:
+                b_eq,   _, _ = _ofdm_run_link(
+                    nsym_b, M_b, _N_FFT, _N_CP, _N_ACTIVE, snr,
+                    tuple(_DELAYS),
+                    tuple(g.real for g in gains_b), tuple(g.imag for g in gains_b),
+                    True, 7)
+                b_noeq, _, _ = _ofdm_run_link(
+                    nsym_b, M_b, _N_FFT, _N_CP, _N_ACTIVE, snr,
+                    tuple(_DELAYS),
+                    tuple(g.real for g in gains_b), tuple(g.imag for g in gains_b),
+                    False, 7)
+                bers_eq.append(max(b_eq, 1e-5))
+                bers_noeq.append(max(b_noeq, 1e-5))
+
+        snr_fine = np.linspace(0, snr_max_b, 200)
+        ber_th   = ber_theory(M_b, snr_fine)
+        label_b  = "QPSK" if M_b == 4 else f"{M_b}-QAM"
+
+        with col_plot:
+            fig, ax = plt.subplots(figsize=(9, 5))
+            ax.semilogy(snr_pts, bers_noeq, "rs--", ms=6, lw=1.5,
+                        label="Multipath, NO equalizer")
+            ax.semilogy(snr_pts, bers_eq,   "bo-",  ms=6, lw=1.5,
+                        label="Multipath + ZF equalizer")
+            ax.semilogy(snr_fine, ber_th, "k--", alpha=0.5,
+                        label=f"Theory ({label_b}, AWGN)")
+            ax.axhline(1e-3, color="gray", ls=":", alpha=0.7,
+                       label="BER = 10⁻³ target")
+            ax.set(xlabel="SNR (dB)", ylabel="BER",
+                   title=f"OFDM BER vs SNR — {label_b}, 3-tap Multipath Channel",
+                   ylim=[1e-5, 1], xlim=[0, snr_max_b])
+            ax.legend(fontsize=9)
+            ax.grid(True, which="both", alpha=0.3)
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        with col_ctrl:
+            st.markdown("---")
+            cross = [snr_pts[i] for i, b in enumerate(bers_eq) if b < 1e-3]
+            if cross:
+                st.success(f"ZF equalizer hits BER < 10⁻³ at **{cross[0]} dB**")
+            else:
+                st.warning("Increase max SNR to reach BER < 10⁻³")
