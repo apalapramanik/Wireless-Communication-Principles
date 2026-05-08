@@ -168,6 +168,18 @@ Dependencies: `numpy`, `matplotlib`, `scipy`
 
 ---
 
+## Interactive dashboard
+
+The same OFDM link is also explorable in [`../app.py`](../app.py) under the **🔀 OFDM Explorer** page — three tabs let you tune the 3-tap multipath channel, watch the constellation snap back with a ZF equalizer, and trace a BER vs SNR curve under your chosen channel.
+
+![OFDM Explorer dashboard](../screenshots/ofdm_explorer.png)
+
+```bash
+streamlit run ../app.py
+```
+
+---
+
 ## Key Concepts Summary
 
 | Concept | What it does |

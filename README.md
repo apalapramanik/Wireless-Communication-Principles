@@ -22,6 +22,7 @@ streamlit run app.py
 | 📉 BER Curves | Theory vs Monte Carlo — how SNR drives error rate |
 | 📶 Path Loss & Link Budget | Tune distance / frequency / antenna gains — PASS or FAIL |
 | 🔀 OFDM Explorer | Build a multipath channel, equalize it, measure BER vs SNR |
+| 🛰️ Mobile Network Architecture | Walk through the 4G LTE attach procedure, message by message |
 
 ### Dashboard screenshots
 
@@ -33,9 +34,13 @@ streamlit run app.py
 |---|---|
 | ![Constellation](screenshots/constellation_viewer.png) | ![BER](screenshots/ber_curves.png) |
 
-| Path Loss | OFDM — Constellation |
+| Path Loss & Link Budget | OFDM Explorer |
 |---|---|
-| ![Path Loss](screenshots/path_loss.png) | ![OFDM Constellation](04_OFDM/ofdm_constellation.png) |
+| ![Path Loss](screenshots/path_loss.png) | ![OFDM](screenshots/ofdm_explorer.png) |
+
+| Mobile Network Architecture | |
+|---|---|
+| ![Mobile Network Architecture](screenshots/mobile_network_architecture.png) | |
 
 ---
 
@@ -83,46 +88,7 @@ All signal processing is built from scratch with NumPy — no black-box DSP func
 
 *More Phase 2 topics will be added as the series progresses.*
 
----
-
-## Topic 5 — OFDM Full Transceiver
-
-The [04_OFDM/](04_OFDM/) module implements a complete OFDM link with a 5G NR-like parameter set (128-point FFT, 72 active subcarriers, 16-sample cyclic prefix).
-
-**Simulation results** (16-QAM, 3-tap urban macro channel):
-
-| SNR (dB) | BER — ZF equalizer | BER — no equalizer |
-|----------|--------------------|--------------------|
-| 12 | 4.83e-02 | 2.21e-01 |
-| 18 | 1.69e-02 | 2.05e-01 |
-| 24 | 3.82e-03 | 2.05e-01 |
-| 27 | 9.26e-04 | 2.05e-01 |
-| 30 | 1.16e-04 | 2.03e-01 |
-
-Without equalization the BER **floors at ~0.20** regardless of SNR — channel distortion is deterministic and power doesn't fix it. The ZF equalizer crosses the 10⁻³ target at **≈27 dB**, tracking close to the theoretical AWGN curve.
-
-| Channel model | BER vs SNR curve |
-|---|---|
-| ![Channel](04_OFDM/channel.png) | ![BER](04_OFDM/ofdm_ber.png) |
-
----
-
-## Topic 6 — Mobile Network Architecture (Phase 2 begins)
-
-The [05_Mobile_Network_Architecture/](05_Mobile_Network_Architecture/) module simulates the **4G LTE attach procedure** — every message that flows when a phone joins the network: RRC connection, EPS-AKA authentication, NAS security, default bearer setup, and the GTP user-plane tunnel.
-
-**What it covers:**
-
-| Plane | Procedures |
-|-------|------------|
-| Control | RRC, NAS, S1-MME, S6a (HSS), S11 (MME↔SGW), S5 (SGW↔PGW) |
-| User | S1-U / S5 GTP tunnels, TEID-based forwarding |
-
-It also prints a 2G → 3G → 4G → 5G comparison covering RAN nodes (BTS → eNB → gNB), core anchors (MSC/SGSN → MME → AMF, GGSN → SGW/PGW → UPF), and how the CP/UP split evolved into 5G's full CUPS architecture.
-
-```bash
-python3 05_Mobile_Network_Architecture/lte_attach.py
-```
+Each folder has its own deep-dive README with theory, simulation results, and figures — see [04_OFDM/README.md](04_OFDM/README.md) and [05_Mobile_Network_Architecture/README.md](05_Mobile_Network_Architecture/README.md).
 
 ---
 

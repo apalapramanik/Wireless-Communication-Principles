@@ -33,6 +33,7 @@ PAGES = [
     "📉 BER Curves",
     "📶 Path Loss & Link Budget",
     "🔀 OFDM Explorer",
+    "🛰️ Mobile Network Architecture",
 ]
 page = st.sidebar.radio("Navigate", PAGES)
 st.sidebar.markdown("---")
@@ -214,7 +215,7 @@ if page == "🏠 Overview":
     )
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Topics covered", "6")
+    col1.metric("Topics covered", "7")
     col2.metric("Python files", "20+")
     col3.metric("External deps", "numpy · matplotlib · scipy")
 
@@ -228,6 +229,7 @@ if page == "🏠 Overview":
 | 📉 **BER Curves** | Theory vs simulation — how SNR determines error rate |
 | 📶 **Path Loss & Link Budget** | Tune distance, frequency, antenna gains — PASS or FAIL |
 | 🔀 **OFDM Explorer** | Build a multipath channel, equalize it, measure BER vs SNR |
+| 🛰️ **Mobile Network Architecture** | Walk through the 4G LTE attach procedure, message by message |
     """)
 
     st.info("Use the sidebar to navigate between pages.")
@@ -821,3 +823,250 @@ elif page == "🔀 OFDM Explorer":
                 st.success(f"ZF equalizer hits BER < 10⁻³ at **{cross[0]} dB**")
             else:
                 st.warning("Increase max SNR to reach BER < 10⁻³")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Page: Mobile Network Architecture
+# ═══════════════════════════════════════════════════════════════════════
+elif page == "🛰️ Mobile Network Architecture":
+    st.title("🛰️ Mobile Network Architecture")
+    st.markdown(
+        "Explore the **4G LTE attach procedure** — every signaling message exchanged "
+        "when a phone joins the network, gets authenticated, and obtains an IP and a "
+        "data tunnel to the internet."
+    )
+
+    tab1, tab2, tab3 = st.tabs(["🗺️ Network Topology", "📨 Attach Sequence", "📊 2G → 5G Evolution"])
+
+    # ── Tab 1: Network Topology ─────────────────────────────────────
+    with tab1:
+        st.markdown(
+            "The 4G **EPS** (Evolved Packet System) splits cleanly into the **RAN** "
+            "(radio access) and the **EPC** (core), with separate control-plane and "
+            "user-plane paths."
+        )
+
+        # node positions
+        nodes = {
+            "UE":  (0.05, 0.50),
+            "eNB": (0.25, 0.50),
+            "MME": (0.50, 0.78),
+            "HSS": (0.78, 0.78),
+            "SGW": (0.50, 0.22),
+            "PGW": (0.78, 0.22),
+            "Internet": (0.95, 0.22),
+        }
+        node_color = {
+            "UE": "#4C72B0", "eNB": "#55A868",
+            "MME": "#C44E52", "HSS": "#8172B3",
+            "SGW": "#CCB974", "PGW": "#64B5CD",
+            "Internet": "#888888",
+        }
+        # control-plane (red) and user-plane (blue) links
+        cp_links = [
+            ("UE", "eNB", "Uu (RRC/NAS)"),
+            ("eNB", "MME", "S1-MME"),
+            ("MME", "HSS", "S6a"),
+            ("MME", "SGW", "S11"),
+        ]
+        up_links = [
+            ("UE", "eNB", "Uu (DRB)"),
+            ("eNB", "SGW", "S1-U (GTP)"),
+            ("SGW", "PGW", "S5 (GTP)"),
+            ("PGW", "Internet", "SGi"),
+        ]
+
+        fig, ax = plt.subplots(figsize=(11, 6))
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+
+        # plane bands
+        ax.axhspan(0.62, 0.96, color="#fde7e7", alpha=0.6, zorder=0)
+        ax.axhspan(0.04, 0.38, color="#e7f0fd", alpha=0.6, zorder=0)
+        ax.text(0.99, 0.93, "Control plane", ha="right", fontsize=10,
+                color="#a33", fontweight="bold")
+        ax.text(0.99, 0.07, "User plane",    ha="right", fontsize=10,
+                color="#338", fontweight="bold")
+
+        for name, (x, y) in nodes.items():
+            ax.add_patch(plt.Circle((x, y), 0.045,
+                                    color=node_color[name], zorder=3))
+            ax.text(x, y, name, ha="center", va="center",
+                    color="white", fontsize=10, fontweight="bold", zorder=4)
+
+        def draw_link(a, b, label, color, offset=0.0):
+            x1, y1 = nodes[a]
+            x2, y2 = nodes[b]
+            ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
+                        arrowprops=dict(arrowstyle="-", color=color,
+                                        lw=2, alpha=0.8), zorder=2)
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2 + offset
+            ax.text(mx, my, label, ha="center", va="center", fontsize=8,
+                    color=color, bbox=dict(facecolor="white",
+                                           edgecolor="none", alpha=0.85))
+
+        for a, b, lbl in cp_links:
+            draw_link(a, b, lbl, "#c0392b", offset=0.025)
+        for a, b, lbl in up_links:
+            draw_link(a, b, lbl, "#2c5fa8", offset=-0.025)
+
+        ax.set_title("4G LTE / EPS Reference Architecture", fontsize=12, pad=15)
+        st.pyplot(fig)
+        plt.close(fig)
+
+        st.markdown("""
+| Node | Plane | Role |
+|------|-------|------|
+| **UE** (User Equipment) | — | The phone — runs the air-interface stack and the SIM/USIM |
+| **eNB** (evolved Node B) | RAN | LTE base station — RRC, scheduling, ciphering at AS layer |
+| **MME** | Core CP | Mobility, authentication, attach orchestration — never touches user data |
+| **HSS** | Core CP | Subscriber database — stores K, generates AKA vectors |
+| **SGW** (Serving GW) | Core UP | Local user-plane anchor inside the operator network |
+| **PGW** (PDN GW) | Core UP | Internet gateway — allocates UE IP, enforces QoS |
+        """)
+
+    # ── Tab 2: Attach Sequence ─────────────────────────────────────
+    with tab2:
+        st.markdown(
+            "The full attach is **20+ messages across 6 phases**. Use the slider "
+            "to step through the procedure and watch the message flow build up."
+        )
+
+        # (phase_idx, src, dst, label, plane)
+        sequence = [
+            (1, "UE",  "eNB", "RRC Connection Request",            "cp"),
+            (1, "eNB", "UE",  "RRC Connection Setup",              "cp"),
+            (1, "UE",  "eNB", "RRC Connection Setup Complete\n+ NAS Attach Request", "cp"),
+            (2, "eNB", "MME", "Initial UE Message (S1-MME)",       "cp"),
+            (3, "MME", "HSS", "Auth Info Request (S6a)",           "cp"),
+            (3, "HSS", "MME", "Auth Info Answer (RAND, AUTN, XRES)", "cp"),
+            (3, "MME", "UE",  "Authentication Request",            "cp"),
+            (3, "UE",  "MME", "Authentication Response (RES)",     "cp"),
+            (4, "MME", "UE",  "Security Mode Command",             "cp"),
+            (4, "UE",  "MME", "Security Mode Complete",            "cp"),
+            (5, "MME", "SGW", "Create Session Request (S11)",      "cp"),
+            (5, "SGW", "PGW", "Create Session Request (S5)",       "cp"),
+            (5, "PGW", "SGW", "Create Session Response\n(UE IP, PGW TEID)", "cp"),
+            (5, "SGW", "MME", "Create Session Response (SGW TEID)", "cp"),
+            (6, "MME", "eNB", "Initial Context Setup Request",     "cp"),
+            (6, "eNB", "UE",  "RRC Reconfiguration\n(DRB setup, AS security)", "cp"),
+            (6, "UE",  "eNB", "RRC Reconfiguration Complete",      "cp"),
+            (6, "eNB", "MME", "Initial Context Setup Response\n(eNB TEID)", "cp"),
+            (6, "UE",  "MME", "Attach Complete (NAS)",             "cp"),
+            (7, "UE",  "Internet", "User-plane data via GTP tunnel", "up"),
+        ]
+        phase_names = {
+            1: "RRC Connection Setup",
+            2: "Initial UE Message",
+            3: "EPS-AKA Authentication",
+            4: "NAS Security Mode",
+            5: "Default Bearer Setup",
+            6: "Attach Accept + Radio Bearer",
+            7: "User-Plane Data Flow",
+        }
+
+        col_ctrl, col_plot = st.columns([1, 3])
+        with col_ctrl:
+            n_steps = st.slider("Show messages 1 …", 1, len(sequence),
+                                len(sequence), key="mna_n")
+            cur_phase = sequence[n_steps - 1][0]
+            st.metric("Current phase", f"{cur_phase}. {phase_names[cur_phase]}")
+            st.metric("Messages shown", f"{n_steps} / {len(sequence)}")
+            cp_count = sum(1 for s in sequence[:n_steps] if s[4] == "cp")
+            up_count = n_steps - cp_count
+            st.markdown(f"- **Control-plane:** {cp_count}")
+            st.markdown(f"- **User-plane:**    {up_count}")
+
+        # lifelines for each entity
+        lanes = ["UE", "eNB", "MME", "HSS", "SGW", "PGW", "Internet"]
+        lane_x = {n: i for i, n in enumerate(lanes)}
+
+        with col_plot:
+            fig, ax = plt.subplots(figsize=(11, max(6, n_steps * 0.45)))
+            ax.set_xlim(-0.6, len(lanes) - 0.4)
+            ax.set_ylim(-(n_steps + 1), 1)
+
+            # lifelines
+            for n, x in lane_x.items():
+                ax.plot([x, x], [0, -(n_steps + 1)],
+                        color="#aaa", lw=1, ls="--", zorder=1)
+                ax.text(x, 0.4, n, ha="center", va="bottom",
+                        fontsize=11, fontweight="bold")
+
+            for i, (ph, src, dst, label, plane) in enumerate(sequence[:n_steps]):
+                y = -(i + 1)
+                x1, x2 = lane_x[src], lane_x[dst]
+                color = "#c0392b" if plane == "cp" else "#2c5fa8"
+                ax.annotate("", xy=(x2, y), xytext=(x1, y),
+                            arrowprops=dict(arrowstyle="->", color=color,
+                                            lw=1.6), zorder=3)
+                mx = (x1 + x2) / 2
+                ax.text(mx, y + 0.18, label, ha="center", va="bottom",
+                        fontsize=8, color=color,
+                        bbox=dict(facecolor="white", edgecolor="none", alpha=0.85))
+                ax.text(-0.55, y, f"P{ph}", ha="right", va="center",
+                        fontsize=8, color="#666")
+
+            ax.axis("off")
+            ax.set_title("LTE Attach — Message Sequence", fontsize=12, pad=10)
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.info(
+            "**Why the order matters:** authentication (Phase 3) must complete before "
+            "any session is created. Security (Phase 4) must activate before the IMSI "
+            "or session keys traverse the network unprotected. Only after the bearer "
+            "exists end-to-end can user data flow."
+        )
+
+    # ── Tab 3: 2G → 5G Evolution ─────────────────────────────────
+    with tab3:
+        st.markdown(
+            "Each generation rebuilt the architecture to push more intelligence to "
+            "the edge and split control from user data more cleanly."
+        )
+
+        rows = [
+            ("Air interface",  "TDMA/FDMA",  "WCDMA",     "OFDMA",       "OFDM/NR"),
+            ("RAN node",       "BTS",        "Node B",    "eNB",         "gNB (RU+DU+CU)"),
+            ("RAN controller", "BSC",        "RNC",       "None (flat)", "CU (logical)"),
+            ("Core type",      "CS + PS",    "CS + PS",   "All-IP EPC",  "Cloud-native 5GC"),
+            ("CP anchor",      "MSC/SGSN",   "SGSN",      "MME",         "AMF"),
+            ("UP anchor",      "GGSN",       "GGSN",      "SGW/PGW",     "UPF"),
+            ("Peak DL",        "~0.1 Mbps",  "~42 Mbps",  "~150 Mbps",   "~20 Gbps"),
+            ("Latency (RTT)",  "~300 ms",    "~100 ms",   "~30 ms",      "~1 ms"),
+            ("CP/UP split",    "No",         "No",        "Partial",     "Full (CUPS)"),
+        ]
+        table_md = "| Feature | 2G (GSM) | 3G (UMTS) | 4G (LTE) | 5G NR |\n"
+        table_md += "|---|---|---|---|---|\n"
+        for r in rows:
+            table_md += f"| **{r[0]}** | {r[1]} | {r[2]} | {r[3]} | {r[4]} |\n"
+        st.markdown(table_md)
+
+        st.markdown("---")
+        st.markdown("### Peak downlink throughput")
+        gens   = ["2G (GSM)", "3G (UMTS)", "4G (LTE)", "5G NR"]
+        speeds = [0.1, 42, 150, 20_000]   # Mbps
+        gen_colors = ["#888", "#5a8db5", "#55a868", "#c44e52"]
+
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        bars = ax.bar(gens, speeds, color=gen_colors)
+        ax.set_yscale("log")
+        ax.set_ylabel("Peak DL throughput (Mbps, log scale)")
+        ax.set_title("Generational leap — each step is roughly 100×")
+        ax.grid(True, axis="y", which="both", alpha=0.3)
+        for bar, v in zip(bars, speeds):
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    v * 1.4,
+                    f"{v:g} Mbps" if v < 1000 else f"{v/1000:g} Gbps",
+                    ha="center", fontsize=10)
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+
+        st.success(
+            "**5G key shifts:** the gNB splits into Radio/Distributed/Centralized units "
+            "(RU + DU + CU) for cloud RAN; the EPC becomes a service-based 5GC with the "
+            "AMF (control) and UPF (user) as separate cloud-native functions; CP/UP are "
+            "fully decoupled (CUPS), enabling local-breakout and edge compute."
+        )
