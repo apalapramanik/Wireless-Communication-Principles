@@ -65,20 +65,23 @@ All signal processing is built from scratch with NumPy — no black-box DSP func
 
 ## Structure
 
+### Phase 1 — Physical Layer & Signal Processing
+
 | Folder | Topic | Key files |
 |--------|-------|-----------|
 | [00_Networking_Fundamentals](00_Networking_Fundamentals/) | TCP/UDP, packet switching, 4 delays, encapsulation | `delay_calculator.py` `tcp_demo.py` `udp_demo.py` |
 | [01_Signal_Fundamentals](01_Signal_Fundamentals/) | RF basics, dB/dBm, path loss models, link budget | `rf_basics.py` `path_loss.py` `link_budget.py` |
 | [02_Modulation_Techniques](02_Modulation_Techniques/) | QAM constellations, BER curves, 5G MCS table | `constellation.py` `transceiver.py` `ber_curves.py` `mcs_table.py` |
 | [03_DSP](03_DSP/) | FFT, Nyquist/aliasing, FIR filter, spectrogram | `fft_basics.py` `aliasing.py` `fir_filter.py` `spectrogram.py` |
-| [03_Channel_Models](03_Channel_Models/) | AWGN, Rayleigh/Rician fading *(coming soon)* | — |
 | [04_OFDM](04_OFDM/) | Full transceiver, multipath channel, ZF equalizer, BER vs SNR | `ofdm_transceiver.py` |
-| [05_MIMO](05_MIMO/) | Spatial multiplexing, beamforming *(coming soon)* | — |
-| [06_Error_Coding](06_Error_Coding/) | Hamming, LDPC, polar codes *(coming soon)* | — |
-| [07_Multiple_Access](07_Multiple_Access/) | CDMA, OFDMA, NOMA *(coming soon)* | — |
-| [08_5G_NR](08_5G_NR/) | NR numerology, mmWave, massive MIMO *(coming soon)* | — |
-| [09_Link_Budget](09_Link_Budget/) | End-to-end SNR/BER/margin *(coming soon)* | — |
-| [10_Simulations](10_Simulations/) | End-to-end chain *(coming soon)* | — |
+
+### Phase 2 — Mobile Network Architecture & Protocols
+
+| Folder | Topic | Key files |
+|--------|-------|-----------|
+| [05_Mobile_Network_Architecture](05_Mobile_Network_Architecture/) | 4G LTE attach procedure, control vs user plane, GTP tunnels, 2G→5G evolution | `lte_attach.py` |
+
+*More Phase 2 topics will be added as the series progresses.*
 
 ---
 
@@ -101,6 +104,25 @@ Without equalization the BER **floors at ~0.20** regardless of SNR — channel d
 | Channel model | BER vs SNR curve |
 |---|---|
 | ![Channel](04_OFDM/channel.png) | ![BER](04_OFDM/ofdm_ber.png) |
+
+---
+
+## Topic 6 — Mobile Network Architecture (Phase 2 begins)
+
+The [05_Mobile_Network_Architecture/](05_Mobile_Network_Architecture/) module simulates the **4G LTE attach procedure** — every message that flows when a phone joins the network: RRC connection, EPS-AKA authentication, NAS security, default bearer setup, and the GTP user-plane tunnel.
+
+**What it covers:**
+
+| Plane | Procedures |
+|-------|------------|
+| Control | RRC, NAS, S1-MME, S6a (HSS), S11 (MME↔SGW), S5 (SGW↔PGW) |
+| User | S1-U / S5 GTP tunnels, TEID-based forwarding |
+
+It also prints a 2G → 3G → 4G → 5G comparison covering RAN nodes (BTS → eNB → gNB), core anchors (MSC/SGSN → MME → AMF, GGSN → SGW/PGW → UPF), and how the CP/UP split evolved into 5G's full CUPS architecture.
+
+```bash
+python3 05_Mobile_Network_Architecture/lte_attach.py
+```
 
 ---
 
