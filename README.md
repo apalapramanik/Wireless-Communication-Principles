@@ -23,6 +23,7 @@ streamlit run app.py
 | 📶 Path Loss & Link Budget | Tune distance / frequency / antenna gains — PASS or FAIL |
 | 🔀 OFDM Explorer | Build a multipath channel, equalize it, measure BER vs SNR |
 | 🛰️ Mobile Network Architecture | Walk through the 4G LTE attach procedure, message by message |
+| 📻 CDMA / WCDMA | Spread codes, near-far, power control loop, RAKE multipath combining |
 
 ### Dashboard screenshots
 
@@ -38,9 +39,9 @@ streamlit run app.py
 |---|---|
 | ![Path Loss](screenshots/path_loss.png) | ![OFDM](screenshots/ofdm_explorer.png) |
 
-| Mobile Network Architecture | |
+| Mobile Network Architecture | CDMA / WCDMA |
 |---|---|
-| ![Mobile Network Architecture](screenshots/mobile_network_architecture.png) | |
+| ![Mobile Network Architecture](screenshots/mobile_network_architecture.png) | ![CDMA / WCDMA](screenshots/cdma_wcdma.png) |
 
 ---
 
@@ -85,10 +86,11 @@ All signal processing is built from scratch with NumPy — no black-box DSP func
 | Folder | Topic | Key files |
 |--------|-------|-----------|
 | [05_Mobile_Network_Architecture](05_Mobile_Network_Architecture/) | 4G LTE attach procedure, control vs user plane, GTP tunnels, 2G→5G evolution | `lte_attach.py` |
+| [06_3G_CDMA_WCDMA](06_3G_CDMA_WCDMA/) | Walsh codes, multi-user CDMA, near-far + closed-loop TPC, RAKE multipath combining | `cdma_wcdma.py` |
 
 *More Phase 2 topics will be added as the series progresses.*
 
-Each folder has its own deep-dive README with theory, simulation results, and figures — see [04_OFDM/README.md](04_OFDM/README.md) and [05_Mobile_Network_Architecture/README.md](05_Mobile_Network_Architecture/README.md).
+Each folder has its own deep-dive README with theory, simulation results, and figures — see [04_OFDM/README.md](04_OFDM/README.md), [05_Mobile_Network_Architecture/README.md](05_Mobile_Network_Architecture/README.md), and [06_3G_CDMA_WCDMA/README.md](06_3G_CDMA_WCDMA/README.md).
 
 ---
 

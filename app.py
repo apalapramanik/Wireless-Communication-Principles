@@ -17,6 +17,7 @@ from scipy.special import erfc as _erfc
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '02_Modulation_Techniques'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '01_Signal_Fundamentals'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '03_DSP'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '06_3G_CDMA_WCDMA'))
 
 st.set_page_config(
     page_title="Wireless Comms Explorer",
@@ -34,6 +35,7 @@ PAGES = [
     "📶 Path Loss & Link Budget",
     "🔀 OFDM Explorer",
     "🛰️ Mobile Network Architecture",
+    "📻 CDMA / WCDMA",
 ]
 page = st.sidebar.radio("Navigate", PAGES)
 st.sidebar.markdown("---")
@@ -215,7 +217,7 @@ if page == "🏠 Overview":
     )
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Topics covered", "7")
+    col1.metric("Topics covered", "8")
     col2.metric("Python files", "20+")
     col3.metric("External deps", "numpy · matplotlib · scipy")
 
@@ -230,6 +232,7 @@ if page == "🏠 Overview":
 | 📶 **Path Loss & Link Budget** | Tune distance, frequency, antenna gains — PASS or FAIL |
 | 🔀 **OFDM Explorer** | Build a multipath channel, equalize it, measure BER vs SNR |
 | 🛰️ **Mobile Network Architecture** | Walk through the 4G LTE attach procedure, message by message |
+| 📻 **CDMA / WCDMA** | Spread codes, near-far, power control loop, RAKE multipath combining |
     """)
 
     st.info("Use the sidebar to navigate between pages.")
@@ -1069,4 +1072,309 @@ elif page == "🛰️ Mobile Network Architecture":
             "(RU + DU + CU) for cloud RAN; the EPC becomes a service-based 5GC with the "
             "AMF (control) and UPF (user) as separate cloud-native functions; CP/UP are "
             "fully decoupled (CUPS), enabling local-breakout and edge compute."
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Page: CDMA / WCDMA
+# ═══════════════════════════════════════════════════════════════════════
+elif page == "📻 CDMA / WCDMA":
+    from cdma_wcdma import (
+        generate_walsh_codes,
+        spreading_factor_to_chips,
+        despread,
+        simulate_cdma_multiuser,
+        simulate_near_far,
+        simulate_rake_receiver,
+    )
+
+    st.title("📻 3G CDMA / WCDMA")
+    st.markdown(
+        "In CDMA, every user shares the **same frequency at the same time** but uses "
+        "a different orthogonal code to spread their data over a wider bandwidth. "
+        "Explore the four ideas that made it work: spreading, multi-user separation, "
+        "power control, and the RAKE receiver."
+    )
+
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["🧩 Spreading", "👥 Multi-User", "📶 Near-Far + Power Control", "🎚️ RAKE Receiver"]
+    )
+
+    # ── Tab 1: Spreading ───────────────────────────────────────────
+    with tab1:
+        st.markdown(
+            "Each data bit is multiplied by a length-`SF` chip code. The chip rate is "
+            "`SF × bit rate`, so the signal occupies `SF` times the bandwidth — but at "
+            "the receiver, despreading concentrates the signal energy back into one bit "
+            "while spreading any narrow-band interference. That's the **processing gain**."
+        )
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            sf_pow = st.slider("Spreading factor (SF = 2^k)", 1, 6, 3, key="cdma_sf_pow")
+            sf     = 2 ** sf_pow
+            code_idx = st.slider("Walsh code index", 0, sf - 1, min(1, sf - 1),
+                                  key="cdma_code_idx")
+            bit_val = st.radio("Data bit", [+1, -1], index=0, horizontal=True,
+                               key="cdma_bit")
+            snr_db_chip = st.slider("Chip-level SNR (dB)", -10, 30, 10,
+                                     key="cdma_snr_chip")
+            st.metric("Chips per bit", sf)
+            st.metric("Processing gain", f"{10 * np.log10(sf):.1f} dB")
+
+        codes = generate_walsh_codes(sf)
+        code  = codes[code_idx]
+        chips = spreading_factor_to_chips(np.array([bit_val]), code)
+
+        rng_l = np.random.default_rng(0)
+        sigp  = float(np.mean(chips ** 2))
+        nstd  = np.sqrt(sigp / (10 ** (snr_db_chip / 10)))
+        rx    = chips + rng_l.normal(0, nstd, size=chips.shape)
+        recovered = float(np.sign(np.dot(rx, code)))
+
+        with col_plot:
+            fig, axes = plt.subplots(3, 1, figsize=(10, 6),
+                                     gridspec_kw={"hspace": 0.5})
+
+            axes[0].step(range(sf + 1), np.append(code, code[-1]),
+                         where="post", color="seagreen", lw=2)
+            axes[0].set(title=f"Spreading code (Walsh row {code_idx}, SF={sf})",
+                        xlabel="chip", ylabel="±1", yticks=[-1, 0, 1])
+            axes[0].grid(True, alpha=0.3)
+
+            axes[1].step(range(sf + 1), np.append(chips, chips[-1]),
+                         where="post", color="steelblue", lw=2,
+                         label="transmitted chips")
+            axes[1].axhline(bit_val, color="tomato", ls="--",
+                            label=f"data bit = {bit_val:+d}")
+            axes[1].set(title="Transmitted chip stream  (1 bit × code)",
+                        xlabel="chip", ylabel="±1", yticks=[-1, 0, 1])
+            axes[1].legend(fontsize=9); axes[1].grid(True, alpha=0.3)
+
+            axes[2].step(range(sf + 1), np.append(rx, rx[-1]),
+                         where="post", color="darkorchid", lw=1.5)
+            axes[2].axhline(0, color="k", lw=0.5)
+            axes[2].set(title=f"Received (with noise)  →  despread bit = {recovered:+.0f}",
+                        xlabel="chip", ylabel="amplitude")
+            axes[2].grid(True, alpha=0.3)
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        if recovered == bit_val:
+            st.success(f"✅ Bit recovered correctly: sent {bit_val:+d}, "
+                       f"received {recovered:+.0f}")
+        else:
+            st.error(f"❌ Bit error — noise overwhelmed the despreader. "
+                     f"Lower noise or raise SF.")
+
+    # ── Tab 2: Multi-user CDMA ─────────────────────────────────────
+    with tab2:
+        st.markdown(
+            "Multiple users share the **same channel** at the same time, each using a "
+            "different orthogonal Walsh code. The base station despreads with each "
+            "user's code in turn — orthogonality makes other users average to zero."
+        )
+
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            n_users_pow = st.slider("Number of users (SF = users)",
+                                     1, 5, 2, key="cdma_mu_users")
+            n_users  = 2 ** n_users_pow
+            n_bits   = st.slider("Bits per user", 8, 200, 64,
+                                  key="cdma_mu_bits")
+            snr_db_mu = st.slider("Chip-level SNR (dB)", -5, 30, 15,
+                                   key="cdma_mu_snr")
+
+        data, recovered, ber, codes = simulate_cdma_multiuser(
+            n_users=n_users, n_bits=n_bits, snr_db=snr_db_mu,
+        )
+
+        with col_ctrl:
+            st.markdown("---")
+            st.markdown("**BER per user**")
+            for u, b in ber.items():
+                st.metric(f"User {u}", f"{b:.4f}")
+
+        with col_plot:
+            fig, axes = plt.subplots(2, 1, figsize=(10, 6),
+                                     gridspec_kw={"hspace": 0.5})
+
+            colors = plt.cm.tab10(np.linspace(0, 1, max(n_users, 4)))
+            for u in range(n_users):
+                offset = u * 0.18
+                axes[0].scatter(range(n_bits), data[u] + offset,
+                                marker="s", s=18, color=colors[u],
+                                label=f"sent  U{u}")
+                axes[0].scatter(range(n_bits), recovered[u] + offset,
+                                marker="x", s=22, color=colors[u], alpha=0.6)
+            axes[0].set(title=f"{n_users} users sharing the same channel "
+                              f"(■ sent, × recovered)",
+                        xlabel="bit index", ylabel="±1 (offset per user)")
+            axes[0].legend(fontsize=8, loc="upper right", ncol=2)
+            axes[0].grid(True, alpha=0.3)
+
+            # Cross-correlation matrix
+            xc = (codes @ codes.T) / codes.shape[1]
+            im = axes[1].imshow(xc, vmin=-1, vmax=1, cmap="RdBu_r", aspect="auto")
+            axes[1].set(title=f"Walsh code cross-correlation matrix "
+                              f"(diagonal=1, off-diagonal=0 → orthogonal)",
+                        xlabel="code j", ylabel="code i")
+            plt.colorbar(im, ax=axes[1], fraction=0.04)
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.info(
+            "**Why it works:** because the Walsh codes are orthogonal "
+            "(`<c_i, c_j> = 0` for `i ≠ j`), correlating the received sum with code `i` "
+            "preserves user `i` and cancels every other user. The off-diagonal of the "
+            "cross-correlation matrix is exactly zero."
+        )
+
+    # ── Tab 3: Near-Far + Power Control ────────────────────────────
+    with tab3:
+        st.markdown(
+            "Path loss grows roughly as `d^3.5` in urban environments. Without power "
+            "control, the close user **drowns out** the far one — orthogonality alone "
+            "can't save you. WCDMA's TPC inner loop runs **1500 times per second**, "
+            "telling each UE to step its TX power up or down by 1 dB to land at the "
+            "same Rx power at the Node B."
+        )
+
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            d1 = st.slider("User 1 distance (m)",   50, 3000, 100,  step=50, key="cdma_d1")
+            d2 = st.slider("User 2 distance (m)",   50, 3000, 500,  step=50, key="cdma_d2")
+            d3 = st.slider("User 3 distance (m)",   50, 3000, 1000, step=50, key="cdma_d3")
+            d4 = st.slider("User 4 distance (m)",   50, 3000, 2000, step=50, key="cdma_d4")
+
+        distances = [d1, d2, d3, d4]
+        rx_no_ctrl, rx_history, target = simulate_near_far(distances)
+
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("Spread without TPC",
+                      f"{rx_no_ctrl.max() - rx_no_ctrl.min():.1f} dB")
+            converged = np.argmin(np.abs(rx_history[:, -1] - target))
+            st.metric("TPC convergence", f"~{converged} steps")
+
+        with col_plot:
+            fig, axes = plt.subplots(1, 2, figsize=(11, 4.5),
+                                     gridspec_kw={"wspace": 0.35})
+
+            axes[0].bar(range(1, 5), rx_no_ctrl,
+                        color=["steelblue", "tomato", "seagreen", "darkorchid"])
+            axes[0].axhline(target, color="k", ls="--",
+                            label=f"target {target:+.0f} dBm")
+            axes[0].set(title="Without power control",
+                        xlabel="user", ylabel="Rx power at Node B (dBm)",
+                        xticks=range(1, 5))
+            for i, v in enumerate(rx_no_ctrl):
+                axes[0].text(i + 1, v + 1, f"{v:+.0f}", ha="center", fontsize=9)
+            axes[0].legend(fontsize=9); axes[0].grid(True, axis="y", alpha=0.3)
+
+            cs = ["steelblue", "tomato", "seagreen", "darkorchid"]
+            for u, d in enumerate(distances):
+                axes[1].plot(rx_history[:, u], color=cs[u], lw=1.5,
+                             label=f"U{u+1} ({d} m)")
+            axes[1].axhline(target, color="k", ls="--", label="target")
+            axes[1].set(title="With closed-loop TPC",
+                        xlabel="TPC iteration  (1500 / s)",
+                        ylabel="Rx power at Node B (dBm)")
+            axes[1].legend(fontsize=9); axes[1].grid(True, alpha=0.3)
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.success(
+            "**The point:** without TPC, even small distance differences create "
+            "30+ dB Rx-power gaps, swamping the orthogonality budget. After TPC, "
+            "every user lands at the same target power — only then can the despreader "
+            "actually separate them."
+        )
+
+    # ── Tab 4: RAKE Receiver ───────────────────────────────────────
+    with tab4:
+        st.markdown(
+            "A WCDMA chip period is ~0.26 µs (chip rate = 3.84 Mcps). Echoes that "
+            "arrive more than one chip late are *resolvable* — the RAKE receiver puts "
+            "one matched-filter **finger** on each echo and combines them with "
+            "**Maximum Ratio Combining**, turning multipath from a problem into "
+            "diversity gain."
+        )
+
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            sf_r   = st.select_slider("Spreading factor",
+                                       options=[4, 8, 16, 32, 64], value=16,
+                                       key="cdma_rake_sf")
+            n_b    = st.slider("Bits per trial", 50, 500, 200, step=50,
+                                key="cdma_rake_bits")
+            snr_pt = st.slider("Show single-shot at SNR (dB)", -10, 20, 0,
+                                key="cdma_rake_snr_pt")
+
+        # single-shot
+        ber_s_pt, ber_r_pt, paths = simulate_rake_receiver(
+            sf=sf_r, n_data_bits=n_b, snr_db=snr_pt,
+        )
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("Single finger BER",      f"{ber_s_pt:.4f}")
+            st.metric("RAKE (3 fingers) BER",   f"{ber_r_pt:.4f}")
+
+        # BER vs SNR sweep (cached)
+        @st.cache_data(show_spinner="Sweeping SNR...")
+        def _rake_sweep(sf, n_b):
+            snrs = list(range(-10, 16, 2))
+            single, rake = [], []
+            for s in snrs:
+                bs, br, _ = simulate_rake_receiver(
+                    sf=sf, n_data_bits=n_b, snr_db=s,
+                )
+                single.append(bs)
+                rake.append(br)
+            return snrs, single, rake
+
+        snrs, ber_s, ber_r = _rake_sweep(sf_r, n_b)
+
+        with col_plot:
+            fig, axes = plt.subplots(1, 2, figsize=(11, 4.5),
+                                     gridspec_kw={"wspace": 0.35})
+
+            d_axis = [d for d, _ in paths]
+            a_axis = [a for _, a in paths]
+            ml, sl, _ = axes[0].stem(d_axis, a_axis, basefmt="k-")
+            plt.setp(sl, color="steelblue", linewidth=2)
+            plt.setp(ml, color="steelblue", markersize=10)
+            for d, a in zip(d_axis, a_axis):
+                axes[0].annotate(f"{a:.2f}", xy=(d, a),
+                                 xytext=(d + 0.15, a + 0.04), fontsize=9)
+            axes[0].set(title="Multipath channel (3 paths)",
+                        xlabel="delay (chips)", ylabel="amplitude",
+                        xlim=[-0.5, max(d_axis) + 1.5], ylim=[0, 1.15])
+            axes[0].grid(True, alpha=0.3)
+
+            axes[1].semilogy(snrs, np.clip(ber_s, 1e-4, 1),
+                             "tomato", marker="o", lw=2, label="single finger")
+            axes[1].semilogy(snrs, np.clip(ber_r, 1e-4, 1),
+                             "steelblue", marker="s", lw=2,
+                             label="RAKE (3 fingers, MRC)")
+            axes[1].axvline(snr_pt, color="k", ls=":", alpha=0.6,
+                            label=f"current SNR = {snr_pt} dB")
+            axes[1].set(title="BER vs SNR — RAKE diversity gain",
+                        xlabel="SNR (dB)", ylabel="BER",
+                        ylim=[1e-4, 1])
+            axes[1].legend(fontsize=9); axes[1].grid(True, which="both", alpha=0.3)
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.info(
+            "**MRC weighting:** each finger is weighted by the path's amplitude before "
+            "summing — the strong direct path counts more than weak echoes, which is "
+            "the optimal way to combine independent noisy copies of the same signal."
         )
