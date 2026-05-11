@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '02_Modulation_Techni
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '01_Signal_Fundamentals'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '03_DSP'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '06_3G_CDMA_WCDMA'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '07_4G_LTE_Air_Interface'))
 
 st.set_page_config(
     page_title="Wireless Comms Explorer",
@@ -36,6 +37,7 @@ PAGES = [
     "🔀 OFDM Explorer",
     "🛰️ Mobile Network Architecture",
     "📻 CDMA / WCDMA",
+    "📲 LTE Air Interface",
 ]
 page = st.sidebar.radio("Navigate", PAGES)
 st.sidebar.markdown("---")
@@ -217,7 +219,7 @@ if page == "🏠 Overview":
     )
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Topics covered", "8")
+    col1.metric("Topics covered", "9")
     col2.metric("Python files", "20+")
     col3.metric("External deps", "numpy · matplotlib · scipy")
 
@@ -233,6 +235,7 @@ if page == "🏠 Overview":
 | 🔀 **OFDM Explorer** | Build a multipath channel, equalize it, measure BER vs SNR |
 | 🛰️ **Mobile Network Architecture** | Walk through the 4G LTE attach procedure, message by message |
 | 📻 **CDMA / WCDMA** | Spread codes, near-far, power control loop, RAKE multipath combining |
+| 📲 **LTE Air Interface** | Resource grid, OFDMA scheduler, SC-FDMA PAPR, link adaptation |
     """)
 
     st.info("Use the sidebar to navigate between pages.")
@@ -1377,4 +1380,398 @@ elif page == "📻 CDMA / WCDMA":
             "**MRC weighting:** each finger is weighted by the path's amplitude before "
             "summing — the strong direct path counts more than weak echoes, which is "
             "the optimal way to combine independent noisy copies of the same signal."
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Page: LTE Air Interface
+# ═══════════════════════════════════════════════════════════════════════
+elif page == "📲 LTE Air Interface":
+    import matplotlib.patches as mpatches
+    from lte_air_interface import (
+        LTEResourceGrid,
+        BANDWIDTH_CONFIG,
+        MCS_TABLE,
+        MCS_SNR_THRESHOLD,
+        simulate_ofdma_scheduler,
+        scfdma_vs_ofdma_papr,
+        select_mcs,
+        throughput_vs_snr,
+        peak_throughput_lte,
+        ofdma_transceiver,
+    )
+
+    st.title("📲 4G LTE Air Interface")
+    st.markdown(
+        "LTE's PHY is built on a **time-frequency resource grid**: 15 kHz subcarriers, "
+        "1 ms subframes, 12-subcarrier Resource Blocks. Explore the scheduler, the "
+        "DFT-precoded uplink (SC-FDMA), link adaptation, and the end-to-end OFDMA link."
+    )
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🧱 Resource Grid",
+        "👥 OFDMA Scheduler",
+        "⚡ SC-FDMA PAPR",
+        "🎚️ Link Adaptation",
+        "📡 OFDMA Link",
+    ])
+
+    # ── Tab 1: Resource Grid ──────────────────────────────────────
+    with tab1:
+        st.markdown(
+            "One LTE subframe = **14 OFDM symbols × N×12 subcarriers**. The first 3 "
+            "symbols carry PDCCH control; CRS pilots sit on a fixed pattern every 6th "
+            "subcarrier; the rest is available for data. Drag the bandwidth slider to "
+            "see how much shared overhead is the same regardless of channel size."
+        )
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            bw = st.selectbox("Channel bandwidth (MHz)",
+                              [1.4, 3, 5, 10, 15, 20], index=3,
+                              key="lte_bw")
+            n_users = st.slider("Number of scheduled users", 1, 6, 5,
+                                 key="lte_grid_users")
+
+        grid_obj = LTEResourceGrid(bandwidth_mhz=bw)
+
+        # split RBs roughly evenly among users
+        n_rb = grid_obj.n_rb
+        per_user = n_rb // n_users
+        for u in range(n_users):
+            start = u * per_user
+            stop  = (u + 1) * per_user if u < n_users - 1 else n_rb
+            for rb in range(start, stop):
+                grid_obj.allocate_rb_pair(rb, u)
+
+        user_rgb = [
+            [0.31, 0.60, 0.95], [0.95, 0.49, 0.31], [0.31, 0.95, 0.63],
+            [0.95, 0.89, 0.31], [0.77, 0.31, 0.95], [0.31, 0.95, 0.95],
+        ]
+        img = np.zeros((grid_obj.n_sc, grid_obj.n_symbols, 3))
+        for sc in range(grid_obj.n_sc):
+            for sym in range(grid_obj.n_symbols):
+                v = grid_obj.grid[sc, sym]
+                if v == 0:                            # unallocated data
+                    img[sc, sym] = [0.85, 0.85, 0.85]
+                elif v == 1:                          # pilot
+                    img[sc, sym] = [1.0, 0.42, 0.42]
+                elif v == 2:                          # control
+                    img[sc, sym] = [1.0, 0.65, 0.0]
+                else:                                  # user-allocated
+                    img[sc, sym] = user_rgb[(v - 10) % len(user_rgb)]
+
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("Resource Blocks",       grid_obj.n_rb)
+            st.metric("Active subcarriers",    grid_obj.n_sc)
+            st.metric("Total REs per subframe", grid_obj.n_sc * grid_obj.n_symbols)
+            st.metric("Pilot + control overhead",
+                      f"{grid_obj.overhead_fraction() * 100:.1f}%")
+
+        with col_plot:
+            fig, ax = plt.subplots(figsize=(11, max(4, n_rb * 0.08)))
+            ax.imshow(img, aspect="auto", origin="lower",
+                      extent=[0, grid_obj.n_symbols, 0, grid_obj.n_sc])
+            ax.set(xlabel="OFDM symbol (14 = 1 ms)",
+                   ylabel=f"Subcarrier ({grid_obj.n_rb} RB × 12)",
+                   title=f"LTE resource grid — {bw} MHz "
+                         f"({grid_obj.n_rb} RB, {grid_obj.n_sc} sc)")
+            ax.axvline(7, color="white", lw=1.0, ls="--", alpha=0.6)
+            ax.text(3.2, grid_obj.n_sc + 5, "Slot 0", ha="center", fontsize=8)
+            ax.text(10.2, grid_obj.n_sc + 5, "Slot 1", ha="center", fontsize=8)
+
+            handles = [
+                mpatches.Patch(color=[1, 0.42, 0.42], label="CRS pilot"),
+                mpatches.Patch(color=[1, 0.65, 0],   label="PDCCH control"),
+            ] + [mpatches.Patch(color=user_rgb[u], label=f"User {u}")
+                 for u in range(min(n_users, len(user_rgb)))]
+            ax.legend(handles=handles, loc="upper right", fontsize=7, ncol=3)
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.info(
+            "**Why the overhead is ~25%:** the 3-symbol PDCCH region eats 3/14 of all "
+            "REs (~21%), and CRS pilots add another ~4%. That's true at 1.4 MHz *or* "
+            "20 MHz — wider bandwidth just gives proportionally more data REs."
+        )
+
+    # ── Tab 2: OFDMA Scheduler ────────────────────────────────────
+    with tab2:
+        st.markdown(
+            "Each Resource Block (180 kHz × 1 ms) is the smallest unit a scheduler "
+            "can assign to a user. The **proportional-fair** scheduler picks the user "
+            "with the best instantaneous-rate / average-rate ratio for each RB — "
+            "exploiting frequency-selective fading while keeping users fair."
+        )
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            n_users_s = st.slider("Active users", 2, 8, 5, key="lte_sched_users")
+            n_rb_s    = st.slider("Resource Blocks", 10, 100, 25, step=5,
+                                   key="lte_sched_rbs")
+
+        rb_assign, bits_alloc, snr_db, _ = simulate_ofdma_scheduler(
+            n_users=n_users_s, n_rb=n_rb_s,
+        )
+
+        with col_plot:
+            fig, axes = plt.subplots(2, 1, figsize=(11, 7),
+                                     gridspec_kw={"hspace": 0.4,
+                                                  "height_ratios": [1.4, 1]})
+            # per-RB SNR heatmap
+            im = axes[0].imshow(snr_db, aspect="auto", cmap="viridis",
+                                 origin="lower")
+            axes[0].set(title="Per-RB SNR map (dB) — frequency-selective fading",
+                        xlabel="RB index", ylabel="user")
+            plt.colorbar(im, ax=axes[0], label="SNR (dB)", fraction=0.04)
+            # overlay scheduler's winner per RB
+            for rb in range(n_rb_s):
+                axes[0].add_patch(plt.Rectangle((rb - 0.4, rb_assign[rb] - 0.4),
+                                                0.8, 0.8, fill=False,
+                                                edgecolor="white", lw=1.4))
+
+            cmap = plt.get_cmap("Set2", max(n_users_s, 3))
+            for rb in range(n_rb_s):
+                axes[1].barh(0, 1, left=rb, color=cmap(rb_assign[rb]),
+                             edgecolor="white", lw=0.5)
+            axes[1].set(xlim=[0, n_rb_s], ylim=[-0.5, 0.5], yticks=[],
+                        xlabel="RB index",
+                        title="Scheduler allocation across the band")
+            handles = [mpatches.Patch(color=cmap(u),
+                       label=f"U{u}: {bits_alloc[u]/1e3:.1f} kb")
+                       for u in range(n_users_s)]
+            axes[1].legend(handles=handles, fontsize=8, ncol=min(n_users_s, 4),
+                           loc="lower center", bbox_to_anchor=(0.5, -1.5))
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        with col_ctrl:
+            st.markdown("---")
+            st.markdown("**Bits scheduled per user**")
+            for u in range(n_users_s):
+                st.metric(f"User {u}", f"{bits_alloc[u] / 1e3:.1f} kb",
+                          delta=f"{int(np.sum(rb_assign == u))} RBs")
+
+        st.success(
+            "**Why proportional fair beats max-throughput:** always picking the "
+            "absolute-highest-SNR user leaves cell-edge UEs starving. PF normalizes by "
+            "each user's running average rate, so a deep-fade user that suddenly gets "
+            "a good RB still wins."
+        )
+
+    # ── Tab 3: SC-FDMA vs OFDMA PAPR ─────────────────────────────
+    with tab3:
+        st.markdown(
+            "**OFDMA** stacks many independent QAM symbols across subcarriers — sums "
+            "of many complex sinusoids occasionally line up, producing high peaks. "
+            "That hurts the uplink because UE power amplifiers are tiny: a high PAPR "
+            "wastes battery (PA backoff). **SC-FDMA** applies a DFT to the data first, "
+            "so each time-domain sample is roughly one symbol — single-carrier-like "
+            "envelope, lower PAPR."
+        )
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            n_sc_p   = st.select_slider("Subcarriers allocated",
+                                         options=[4, 12, 24, 48, 72],
+                                         value=12, key="lte_papr_sc")
+            n_sym_p  = st.select_slider("Symbols to simulate",
+                                         options=[200, 500, 1000, 2000, 5000],
+                                         value=1000, key="lte_papr_n")
+
+        @st.cache_data(show_spinner="Generating PAPR distributions...")
+        def _papr_runs(sc, ns):
+            return scfdma_vs_ofdma_papr(n_subcarriers=sc, n_symbols=ns)
+
+        papr_o, papr_s = _papr_runs(n_sc_p, n_sym_p)
+
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("OFDMA mean PAPR",    f"{np.mean(papr_o):.2f} dB")
+            st.metric("SC-FDMA mean PAPR",  f"{np.mean(papr_s):.2f} dB")
+            st.metric("Reduction",
+                       f"{np.mean(papr_o) - np.mean(papr_s):.2f} dB")
+            st.metric("OFDMA 1% PAPR",
+                       f"{np.percentile(papr_o, 99):.2f} dB")
+            st.metric("SC-FDMA 1% PAPR",
+                       f"{np.percentile(papr_s, 99):.2f} dB")
+
+        with col_plot:
+            fig, axes = plt.subplots(1, 2, figsize=(11, 4.5),
+                                     gridspec_kw={"wspace": 0.35})
+
+            axes[0].hist(papr_o, bins=40, alpha=0.6, label="OFDMA",
+                          color="tomato")
+            axes[0].hist(papr_s, bins=40, alpha=0.6, label="SC-FDMA",
+                          color="steelblue")
+            axes[0].set(title="PAPR distribution (histogram)",
+                        xlabel="PAPR (dB)", ylabel="count")
+            axes[0].legend(fontsize=9); axes[0].grid(True, alpha=0.3)
+
+            def _ccdf(d, bins=200):
+                x = np.linspace(d.min(), d.max(), bins)
+                cdf = np.array([np.mean(d <= xi) for xi in x])
+                return x, 1 - cdf
+
+            x_o, c_o = _ccdf(papr_o)
+            x_s, c_s = _ccdf(papr_s)
+            axes[1].semilogy(x_o, np.clip(c_o, 1e-4, 1), "tomato", lw=2,
+                              label="OFDMA")
+            axes[1].semilogy(x_s, np.clip(c_s, 1e-4, 1), "steelblue", lw=2,
+                              label="SC-FDMA")
+            axes[1].set(title="CCDF: Prob(PAPR > x)",
+                        xlabel="PAPR (dB)", ylabel="probability",
+                        ylim=[1e-3, 1])
+            axes[1].legend(fontsize=9)
+            axes[1].grid(True, alpha=0.3, which="both")
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.info(
+            "**Why LTE uses both:** downlink → OFDMA (eNB has plenty of power, peak "
+            "tolerance is easy); uplink → SC-FDMA (UE PA is the bottleneck, lower PAPR "
+            "= more cell-edge coverage)."
+        )
+
+    # ── Tab 4: Link Adaptation ────────────────────────────────────
+    with tab4:
+        st.markdown(
+            "The MAC scheduler picks an MCS (modulation + coding rate) every TTI to "
+            "match the current channel quality, walking up the staircase: "
+            "QPSK → 16-QAM → 64-QAM. The throughput curve is a *staircase*, not a "
+            "smooth slope, because each MCS is discrete."
+        )
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            bw_la  = st.selectbox("Bandwidth (MHz)", [1.4, 3, 5, 10, 15, 20],
+                                   index=3, key="lte_la_bw")
+            snr_q  = st.slider("Current SNR (dB)", -10, 35, 18,
+                                key="lte_la_snr")
+
+        n_rb_la = BANDWIDTH_CONFIG[bw_la][0]
+        snr_arr, tp_arr = throughput_vs_snr(n_rb=n_rb_la)
+        mcs_idx = select_mcs(snr_q)
+        mod, cr, label = MCS_TABLE[mcs_idx]
+
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("Selected MCS",     label)
+            st.metric("Bits per RE",      f"{mod * cr:.2f}")
+            st.metric("Throughput at this SNR",
+                       f"{np.interp(snr_q, snr_arr, tp_arr):.1f} Mbps")
+
+        with col_plot:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.plot(snr_arr, tp_arr, "steelblue", lw=2.5)
+            ax.fill_between(snr_arr, tp_arr, alpha=0.15, color="steelblue")
+            for lbl, lo, hi, c in [
+                ("QPSK",   -10, 7,  "#afd8f8"),
+                ("16-QAM",  7, 18,  "#a8e6cf"),
+                ("64-QAM", 18, 35,  "#f8c8a0"),
+            ]:
+                ax.axvspan(lo, hi, alpha=0.2, color=c)
+                ax.text((lo + hi) / 2, tp_arr.max() * 0.92, lbl,
+                        ha="center", fontsize=10, color="#444")
+            ax.axvline(snr_q, color="k", ls="--", alpha=0.6,
+                       label=f"current SNR = {snr_q} dB")
+            ax.scatter([snr_q],
+                       [np.interp(snr_q, snr_arr, tp_arr)],
+                       color="red", s=80, zorder=5)
+            ax.set(xlabel="SNR (dB)", ylabel="Throughput (Mbps)",
+                   title=f"DL throughput vs SNR — {bw_la} MHz, 1 antenna",
+                   xlim=[-10, 35])
+            ax.legend(fontsize=9); ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        # Peak throughput summary table
+        st.markdown("### Peak DL throughput (64-QAM r=15/16)")
+        cols = st.columns(6)
+        for i, bw_pt in enumerate([1.4, 3, 5, 10, 15, 20]):
+            siso = peak_throughput_lte(bw_pt, mimo_layers=1)["peak_mbps"]
+            mimo = peak_throughput_lte(bw_pt, mimo_layers=2)["peak_mbps"]
+            cols[i].metric(f"{bw_pt} MHz",
+                            f"{siso:.0f} Mbps",
+                            delta=f"{mimo:.0f} Mbps (2×2)")
+
+        st.success(
+            "**Link adaptation is the SNR-to-throughput converter.** Every TTI "
+            "(1 ms), the UE reports a CQI; the eNB picks the highest MCS that "
+            "achieves the 10% BLER target; the staircase you see is exactly the "
+            "set of MCSs the UE walks through as it moves through the cell."
+        )
+
+    # ── Tab 5: End-to-end OFDMA Link ─────────────────────────────
+    with tab5:
+        st.markdown(
+            "A complete OFDMA link: QPSK modulation, IFFT to time domain, cyclic "
+            "prefix, 3-tap multipath channel, AWGN, FFT at the receiver, **LS channel "
+            "estimation from pilots**, zero-forcing equalisation, demod. Watch the "
+            "constellation tighten as SNR rises."
+        )
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            n_rb_l = st.slider("Resource Blocks (data band)", 4, 25, 12,
+                                key="lte_link_rb")
+            snr_l  = st.slider("SNR (dB)", 0, 35, 18, key="lte_link_snr")
+
+        ber, evm, eq_sym, tx_sym = ofdma_transceiver(n_rb=n_rb_l, snr_db=snr_l)
+
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("BER", f"{ber:.4f}")
+            st.metric("EVM (RMS)", f"{evm:.1f}%")
+
+        # full BER sweep
+        @st.cache_data(show_spinner="Running BER sweep...")
+        def _ber_sweep(n_rb):
+            snrs = list(range(0, 30, 3))
+            out  = []
+            for s in snrs:
+                b, _, _, _ = ofdma_transceiver(n_rb=n_rb, snr_db=s)
+                out.append(max(b, 1e-5))
+            return snrs, out
+
+        snrs, bers = _ber_sweep(n_rb_l)
+
+        with col_plot:
+            fig, axes = plt.subplots(1, 2, figsize=(11, 4.5),
+                                     gridspec_kw={"wspace": 0.35})
+
+            axes[0].scatter(eq_sym.real, eq_sym.imag, s=10, alpha=0.4,
+                             color="steelblue", label="received (eq.)")
+            ideal = np.array([1+1j, 1-1j, -1+1j, -1-1j]) / np.sqrt(2)
+            axes[0].scatter(ideal.real, ideal.imag, s=120, marker="*",
+                             color="tomato", zorder=5, label="ideal QPSK")
+            axes[0].set(title=f"QPSK after channel + LS equalisation\n"
+                              f"BER={ber:.4f}  EVM={evm:.1f}%",
+                        xlabel="I", ylabel="Q", xlim=[-2.2, 2.2],
+                        ylim=[-2.2, 2.2])
+            axes[0].axhline(0, color="k", lw=0.5)
+            axes[0].axvline(0, color="k", lw=0.5)
+            axes[0].grid(True, alpha=0.3); axes[0].legend(fontsize=9)
+            axes[0].set_aspect("equal")
+
+            axes[1].semilogy(snrs, bers, "steelblue", marker="o", lw=2)
+            axes[1].axvline(snr_l, color="k", ls="--", alpha=0.5,
+                            label=f"current SNR")
+            axes[1].set(title="BER vs SNR — OFDMA + LS channel estimation",
+                        xlabel="SNR (dB)", ylabel="BER",
+                        ylim=[1e-5, 1])
+            axes[1].grid(True, alpha=0.3, which="both")
+            axes[1].legend(fontsize=9)
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.info(
+            "**Why the BER drops sharply around 10 dB:** the LS pilot estimator picks "
+            "up the channel's per-subcarrier rotation cleanly once SNR clears the "
+            "noise floor. Below that, pilot noise dominates and equalisation actually "
+            "amplifies error on faded subcarriers."
         )
