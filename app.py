@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '01_Signal_Fundamenta
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '03_DSP'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '06_3G_CDMA_WCDMA'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '07_4G_LTE_Air_Interface'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '08_LTE_Protocol_Stack'))
 
 st.set_page_config(
     page_title="Wireless Comms Explorer",
@@ -38,6 +39,7 @@ PAGES = [
     "🛰️ Mobile Network Architecture",
     "📻 CDMA / WCDMA",
     "📲 LTE Air Interface",
+    "🧩 LTE Protocol Stack",
 ]
 page = st.sidebar.radio("Navigate", PAGES)
 st.sidebar.markdown("---")
@@ -219,7 +221,7 @@ if page == "🏠 Overview":
     )
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Topics covered", "9")
+    col1.metric("Topics covered", "10")
     col2.metric("Python files", "20+")
     col3.metric("External deps", "numpy · matplotlib · scipy")
 
@@ -236,6 +238,7 @@ if page == "🏠 Overview":
 | 🛰️ **Mobile Network Architecture** | Walk through the 4G LTE attach procedure, message by message |
 | 📻 **CDMA / WCDMA** | Spread codes, near-far, power control loop, RAKE multipath combining |
 | 📲 **LTE Air Interface** | Resource grid, OFDMA scheduler, SC-FDMA PAPR, link adaptation |
+| 🧩 **LTE Protocol Stack** | HARQ soft combining, RLC AM segmentation, MAC fairness, latency budget |
     """)
 
     st.info("Use the sidebar to navigate between pages.")
@@ -1774,4 +1777,368 @@ elif page == "📲 LTE Air Interface":
             "up the channel's per-subcarrier rotation cleanly once SNR clears the "
             "noise floor. Below that, pilot noise dominates and equalisation actually "
             "amplifies error on faded subcarriers."
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Page: LTE Protocol Stack
+# ═══════════════════════════════════════════════════════════════════════
+elif page == "🧩 LTE Protocol Stack":
+    from lte_protocol_stack import (
+        simulate_harq,
+        RLC_AM_Tx,
+        RLC_AM_Rx,
+        run_scheduler,
+    )
+
+    st.title("🧩 4G LTE Protocol Stack")
+    st.markdown(
+        "Above the PHY sit four sublayers that turn raw bits into reliable, ordered, "
+        "scheduled data: **HARQ** retransmits failed blocks at the MAC layer with soft "
+        "combining; **RLC AM** segments IP packets, retransmits losses with ACK/NACK; "
+        "**MAC scheduling** picks which UE gets which RBs; the whole stack adds up to "
+        "the LTE 10 ms RTT target."
+    )
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "🔁 HARQ",
+        "📦 RLC AM",
+        "⚖️ MAC Scheduler",
+        "⏱️ Latency Budget",
+    ])
+
+    # ── Tab 1: HARQ ───────────────────────────────────────────────
+    with tab1:
+        st.markdown(
+            "When a transport block fails CRC, the UE NACKs and the eNB retransmits — "
+            "but instead of throwing the failed copy away, the receiver **soft-combines** "
+            "the LLRs across all attempts (Chase combining). Each retransmission also "
+            "carries different parity bits (incremental redundancy), so the effective "
+            "code rate drops toward 1/k after k transmissions. Below 0 dB you're "
+            "burning retransmissions for diminishing returns; above ~8 dB the first TX "
+            "almost always succeeds."
+        )
+
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            snr_min = st.slider("SNR sweep min (dB)", -10, 5,  -4,
+                                 key="harq_snr_min")
+            snr_max = st.slider("SNR sweep max (dB)", 5,  20,  14,
+                                 key="harq_snr_max")
+            n_trials = st.select_slider(
+                "Trials per SNR point", options=[100, 200, 500, 1000],
+                value=200, key="harq_trials",
+            )
+            demo_snr = st.slider("Demo SNR for per-round BER", -5, 12, 2,
+                                  key="harq_demo_snr")
+
+        @st.cache_data(show_spinner="Running HARQ sweep...")
+        def _harq_sweep(snr_lo, snr_hi, n_trials):
+            snrs = list(range(snr_lo, snr_hi + 1, 2))
+            first_tx, tp = [], []
+            for s in snrs:
+                r = simulate_harq(snr_db=s, n_trials=n_trials)
+                first_tx.append(r["first_tx_success_rate"])
+                tp.append(r["effective_throughput"])
+            return snrs, first_tx, tp
+
+        @st.cache_data(show_spinner="Running per-round BER...")
+        def _per_round(snr, n_trials):
+            return simulate_harq(snr_db=snr, n_trials=n_trials)["per_round_ber"]
+
+        snrs, first_tx, tp = _harq_sweep(snr_min, snr_max, n_trials)
+        per_round_ber = _per_round(demo_snr, n_trials)
+
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("1st-TX success at sweep top",
+                       f"{first_tx[-1] * 100:.0f}%")
+            st.metric("Effective TP at sweep top",
+                       f"{tp[-1] * 100:.0f}%")
+
+        with col_plot:
+            fig, axes = plt.subplots(1, 3, figsize=(13, 4.5),
+                                     gridspec_kw={"wspace": 0.4})
+
+            axes[0].plot(snrs, first_tx, "b-o", lw=2)
+            axes[0].axhline(0.9, color="red", ls="--", alpha=0.5,
+                             label="90% target")
+            axes[0].set(title="First-TX ACK rate", xlabel="SNR (dB)",
+                        ylabel="P(ACK on first TX)", ylim=[0, 1.05])
+            axes[0].legend(fontsize=9); axes[0].grid(True, alpha=0.3)
+
+            axes[1].plot(snrs, tp, "g-s", lw=2)
+            axes[1].set(title="Effective throughput", xlabel="SNR (dB)",
+                        ylabel="info bits / channel use", ylim=[0, 1.05])
+            axes[1].grid(True, alpha=0.3)
+
+            rounds = list(range(len(per_round_ber)))
+            axes[2].semilogy(rounds, [max(b, 1e-5) for b in per_round_ber],
+                              "r-D", lw=2, markersize=8)
+            axes[2].set(title=f"BER vs combining round (SNR = {demo_snr} dB)",
+                        xlabel="round", ylabel="BER")
+            axes[2].set_xticks(rounds)
+            axes[2].set_xticklabels([f"TX{i}" for i in rounds])
+            axes[2].grid(True, alpha=0.3, which="both")
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.info(
+            "**Why the curves are steep:** at LTE's target SNR (~6 dB for QPSK r=1/2), "
+            "first-TX success crosses 90% — meaning HARQ is *cheap insurance*, not a "
+            "primary error mechanism. Below ~3 dB you're spending most slots on retx "
+            "and effective throughput collapses."
+        )
+
+    # ── Tab 2: RLC AM ─────────────────────────────────────────────
+    with tab2:
+        st.markdown(
+            "**RLC Acknowledged Mode** sits between PDCP (IP packets) and the MAC "
+            "(transport blocks). It segments big SDUs into RB-sized PDUs, numbers each "
+            "one with a sequence number, and ACK/NACKs them — handling reordering and "
+            "duplicate detection. The header costs 2 bytes per PDU; that overhead "
+            "shrinks as MTU grows."
+        )
+
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            n_sdus = st.slider("Number of SDUs (IP packets)", 5, 100, 20,
+                                key="rlc_n_sdus")
+            pdu_bytes = st.select_slider("Max PDU size (bytes)",
+                                          options=[32, 64, 96, 128, 192, 256],
+                                          value=128, key="rlc_pdu_size")
+            loss_prob = st.slider("Packet loss probability (%)", 0, 30, 10,
+                                   key="rlc_loss") / 100.0
+
+        @st.cache_data(show_spinner=False)
+        def _rlc_sim(n_sdus, pdu_bytes, loss_prob, seed):
+            rs = np.random.default_rng(seed)
+            tx = RLC_AM_Tx(max_pdu_bytes=pdu_bytes)
+            rx = RLC_AM_Rx()
+            sdu_sizes = rs.integers(200, 1400, n_sdus)
+            total_bytes = 0
+            for size in sdu_sizes:
+                tx.receive_sdu(rs.integers(0, 256, size, dtype=np.uint8))
+                total_bytes += int(size)
+            pdus = tx.get_pdus_for_mac(n=10000)
+            delivered = [p for p in pdus if rs.random() > loss_prob]
+            idx = list(range(len(delivered)))
+            for i in range(0, len(idx) - 1, 10):
+                if i + 1 < len(idx) and rs.random() < 0.05:
+                    idx[i], idx[i + 1] = idx[i + 1], idx[i]
+            for i in idx:
+                rx.receive_pdu(delivered[i])
+                tx.receive_ack(delivered[i]["sn"])
+            lost = set(range(tx.sn)) - {delivered[i]["sn"] for i in idx}
+            for sn in lost:
+                p = tx.receive_nack(sn)
+                if p:
+                    rx.receive_pdu(p)
+            return tx.stats, rx.stats, list(sdu_sizes), total_bytes
+
+        tx_stats, rx_stats, sdu_sizes, total_bytes = _rlc_sim(
+            n_sdus, pdu_bytes, loss_prob, seed=42,
+        )
+
+        overhead_pct = tx_stats["bytes_overhead"] / max(total_bytes, 1) * 100
+
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("SDUs submitted",     tx_stats["sdus_received"])
+            st.metric("PDUs generated",     tx_stats["pdus_sent"])
+            st.metric("PDUs retransmitted", tx_stats["pdus_retransmitted"])
+            st.metric("Header overhead",    f"{overhead_pct:.1f}%")
+            st.metric("Out-of-order rx",    rx_stats["out_of_order"])
+
+        with col_plot:
+            fig, axes = plt.subplots(1, 2, figsize=(11, 4.5),
+                                     gridspec_kw={"wspace": 0.4})
+
+            # SDU size distribution
+            axes[0].hist(sdu_sizes, bins=15, color="steelblue",
+                         edgecolor="white")
+            axes[0].axvline(pdu_bytes, color="red", ls="--",
+                             label=f"PDU max = {pdu_bytes} B")
+            axes[0].set(title=f"Input SDU size distribution ({n_sdus} packets)",
+                        xlabel="SDU bytes", ylabel="count")
+            axes[0].legend(fontsize=9); axes[0].grid(True, alpha=0.3)
+
+            # Bytes accounting
+            labels = ["Payload", "RLC overhead", "Retx payload"]
+            payload = total_bytes
+            overhead = tx_stats["bytes_overhead"]
+            retx_payload = tx_stats["pdus_retransmitted"] * pdu_bytes
+            sizes = [payload, overhead, retx_payload]
+            cols = ["#4472C4", "#ED7D31", "#A9D18E"]
+            axes[1].bar(labels, sizes, color=cols, edgecolor="black", lw=0.5)
+            for i, v in enumerate(sizes):
+                axes[1].text(i, v + max(sizes) * 0.02, f"{v} B",
+                              ha="center", fontsize=10)
+            axes[1].set(title="Bytes on the air",
+                        ylabel="bytes")
+            axes[1].grid(True, alpha=0.3, axis="y")
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.success(
+            "**The trade-off:** smaller PDUs mean less waste when one is lost (only "
+            "lose the small one, not a whole 1400-byte SDU). But every PDU pays a "
+            "2-byte header, so very small PDUs explode overhead. LTE PDU sizes are "
+            "tuned to the typical RB capacity at the running MCS."
+        )
+
+    # ── Tab 3: MAC Scheduler ──────────────────────────────────────
+    with tab3:
+        st.markdown(
+            "The MAC scheduler picks **one UE per subframe** to receive the channel "
+            "(simplified — real LTE can multiplex). Three classic algorithms compared "
+            "across UEs at different distances from the eNB. **Jain's fairness index** "
+            "is `(Σx)² / (n·Σx²)`: 1.0 = perfectly fair, 1/n = total monopoly."
+        )
+
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            n_ue = st.slider("Number of UEs", 3, 10, 6, key="mac_nue")
+            n_sf = st.select_slider("Subframes simulated",
+                                     options=[200, 500, 1000, 2000],
+                                     value=500, key="mac_nsf")
+
+        @st.cache_data(show_spinner="Running schedulers...")
+        def _sched(algo, n_ue, n_sf, seed):
+            global rng
+            from lte_protocol_stack import rng as proto_rng
+            proto_rng_ = np.random.default_rng(seed)
+            import lte_protocol_stack as mod
+            saved_rng = mod.rng
+            mod.rng = proto_rng_
+            try:
+                ues, _ = run_scheduler(
+                    n_ue=n_ue, n_subframes=n_sf, algorithm=algo,
+                )
+                return [(ue.ue_id, ue.distance_m, ue.total_bytes,
+                         ue.scheduled_count) for ue in ues]
+            finally:
+                mod.rng = saved_rng
+
+        algos = ["proportional_fair", "max_throughput", "round_robin"]
+        titles = ["Proportional Fair", "Max Throughput", "Round Robin"]
+        results = {a: _sched(a, n_ue, n_sf, seed=1) for a in algos}
+
+        with col_plot:
+            fig, axes = plt.subplots(1, 3, figsize=(13, 4.5),
+                                     gridspec_kw={"wspace": 0.4})
+
+            colors = plt.cm.viridis(np.linspace(0.2, 0.85, n_ue))
+
+            for ax, algo, title in zip(axes, algos, titles):
+                data = results[algo]
+                ids = [r[0] for r in data]
+                dists = [r[1] for r in data]
+                bytes_total = [r[2] / 1e6 for r in data]
+                labels = [f"UE{i}\n({int(d)}m)" for i, d in zip(ids, dists)]
+                bars = ax.bar(range(n_ue), bytes_total, color=colors,
+                               edgecolor="black", lw=0.5)
+                ax.set_xticks(range(n_ue))
+                ax.set_xticklabels(labels, fontsize=7)
+                ax.set(title=title, xlabel="UE",
+                       ylabel="Total data (MB)" if algo == algos[0] else "")
+                for b, v in zip(bars, bytes_total):
+                    ax.text(b.get_x() + b.get_width()/2,
+                             b.get_height() + 0.01,
+                             f"{v:.2f}", ha="center", fontsize=8)
+                ji = (sum(bytes_total) ** 2) / max(
+                    n_ue * sum(v * v for v in bytes_total), 1e-9)
+                ax.text(0.02, 0.97, f"Jain: {ji:.3f}",
+                        transform=ax.transAxes, va="top", fontsize=9,
+                        bbox=dict(boxstyle="round",
+                                  facecolor="lightyellow", alpha=0.7))
+                ax.grid(True, axis="y", alpha=0.3)
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        with col_ctrl:
+            st.markdown("---")
+            for algo, title in zip(algos, titles):
+                bytes_total = [r[2] for r in results[algo]]
+                tot = sum(bytes_total) / 1e6
+                ji = (sum(bytes_total) ** 2) / max(
+                    n_ue * sum(v*v for v in bytes_total), 1e-9)
+                st.metric(title,
+                           f"{tot:.1f} MB", delta=f"Jain {ji:.3f}")
+
+        st.info(
+            "**The classic trilemma:** Max-throughput is greedy — close UEs eat the "
+            "whole pipe (low fairness, high total). Round-robin is naive — far UEs "
+            "waste slots on terrible SNR (high fairness, low total). PF is the "
+            "Goldilocks point: weight each user's instantaneous rate by their running "
+            "average, riding fading peaks while still feeding the cell edge."
+        )
+
+    # ── Tab 4: Latency Budget ─────────────────────────────────────
+    with tab4:
+        st.markdown(
+            "Sum of typical per-sublayer one-way delays in an LTE downlink. The "
+            "HARQ ACK cycle (8 ms in FDD) dominates when a first TX fails — which is "
+            "why LTE's 1 ms TTI alone doesn't equal 1 ms latency: the full RTT budget "
+            "is ~10 ms, and that's *only* with one HARQ retransmission."
+        )
+
+        col_ctrl, col_plot = st.columns([1, 2])
+        with col_ctrl:
+            retx_count = st.slider("HARQ retransmissions", 0, 3, 0,
+                                    key="lat_retx")
+            transport_lat = st.slider("Core-to-eNB transport (ms)",
+                                       0.0, 5.0, 1.5, step=0.1,
+                                       key="lat_transport")
+
+        layers = [
+            ("Core → eNB",             transport_lat, "#4472C4"),
+            ("PDCP",                   0.3,           "#ED7D31"),
+            ("RLC segment",            0.2,           "#A9D18E"),
+            ("MAC scheduling",         0.5,           "#FF0000"),
+            ("eNB PHY",                0.5,           "#7030A0"),
+            ("Air (1 TTI)",            1.0,           "#00B0F0"),
+            ("UE PHY",                 0.5,           "#7030A0"),
+            ("HARQ ACK cycle",         4.0 + retx_count * 8, "#FF0000"),
+        ]
+        labels = [l[0] for l in layers]
+        vals   = [l[1] for l in layers]
+        colors_l = [l[2] for l in layers]
+
+        with col_ctrl:
+            st.markdown("---")
+            st.metric("Total one-way",   f"{sum(vals):.1f} ms")
+            st.metric("LTE RTT target",  "< 10 ms")
+            st.metric("HARQ contribution",
+                       f"{layers[-1][1]:.1f} ms",
+                       delta=f"{retx_count} retx")
+
+        with col_plot:
+            fig, ax = plt.subplots(figsize=(11, 5))
+            bars = ax.bar(labels, vals, color=colors_l,
+                          edgecolor="black", lw=0.6, width=0.6)
+            for b, v in zip(bars, vals):
+                ax.text(b.get_x() + b.get_width() / 2,
+                         b.get_height() + 0.1,
+                         f"{v:.1f}", ha="center", fontsize=9,
+                         fontweight="bold")
+            ax.set(ylabel="latency (ms)",
+                   title=f"LTE downlink latency budget — {sum(vals):.1f} ms total")
+            ax.grid(True, axis="y", alpha=0.3)
+            plt.setp(ax.get_xticklabels(), rotation=15, ha="right")
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.success(
+            "**Why 5G needed a new numerology:** even a perfect LTE implementation "
+            "(zero retx, optimal transport) bottoms out around 5–10 ms because of "
+            "the 1 ms TTI and 8 ms HARQ cycle. 5G NR adds mini-slots (down to 2 "
+            "symbols ≈ 0.14 ms) and 4-step HARQ, dropping the floor to ~1 ms."
         )
